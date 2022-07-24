@@ -1,4 +1,4 @@
-import { getToken } from "./metadesk";
+import { getToken, parse } from "./metadesk";
 
 let str = `
 @include("<frc/Joystick.h>")
@@ -19,8 +19,11 @@ io: {
 	}
 }
 `;
-let token;
-while (token = getToken(str)) {
-    console.log(token);
-    str = str.slice(token.rawString.length);
-}
+
+// let token;
+// while (token = getToken(str)) {
+//     console.log(token);
+//     str = str.slice(token.rawString.length);
+// }
+
+console.log(parse(str));

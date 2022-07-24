@@ -1,3 +1,5 @@
+const DEBUG = false;
+
 enum NodeKind {
     Nil,
     
@@ -335,6 +337,10 @@ class ParseContext {
         return getToken(this.#remaining);
     }
 
+    done(): boolean {
+        return !this.peek();
+    }
+
     pop(): Token | undefined {
         const token = getToken(this.#remaining);
         if (!token) {
@@ -391,6 +397,14 @@ class ParseContext {
         this.#errors.push(msg);
     }
 
+    debug(msg: string) {
+        if (!DEBUG) return;
+        console.log({
+            msg,
+            remaining: this.#remaining.slice(0, Math.min(30, this.#remaining.length)),
+        });
+    }
+
     get source(): string {
         return this.#source;
     }
@@ -413,6 +427,8 @@ class ParseContext {
 //    | (scoped-children)
 // )
 function parseNode(ctx: ParseContext): Node | undefined {
+    ctx.debug("parseNode");
+
     ctx.consumeAll(TokenGroup.Whitespace);
 
     const startOffset = ctx.offset;
@@ -457,6 +473,10 @@ function parseTagList(ctx: ParseContext): Node[] {
 
     while (true) {
         ctx.consumeAll(TokenGroup.Whitespace);
+
+        if (ctx.done()) {
+            break;
+        }
 
         const at = ctx.consume(TokenKind.Reserved);
         if (at?.string !== "@") {
@@ -529,7 +549,7 @@ function parseChildrenList(ctx: ParseContext, scoped: boolean): Node[] {
             // Scoped children don't care about whitespace and exit on a closing delimiter.
             ctx.consumeAll(TokenGroup.Whitespace);
             const maybeCloser = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
-            if (maybeCloser) {
+            if (ctx.done() || maybeCloser) {
                 break;
             }
         } else {
@@ -537,7 +557,7 @@ function parseChildrenList(ctx: ParseContext, scoped: boolean): Node[] {
             ctx.consumeAll(TokenKind.Whitespace) // kind, not group!
             const explicitEnd = ctx.check(TokenKind.Reserved, t => ",;".includes(t.string));
             const implicitEnd = ctx.check(TokenKind.Newline);
-            if (explicitEnd || implicitEnd) {
+            if (ctx.done() || explicitEnd || implicitEnd) {
                 break;
             }
         }
