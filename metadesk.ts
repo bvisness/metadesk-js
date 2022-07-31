@@ -1,4 +1,4 @@
-const DEBUG = false;
+const DEBUG = true;
 
 enum NodeKind {
     Nil,
@@ -134,6 +134,7 @@ interface Token {
     // TODO: flags?
     string: string,
     rawString: string,
+    remaining: string,
 }
 
 export function getToken(string: string): Token | undefined {
@@ -304,6 +305,7 @@ export function getToken(string: string): Token | undefined {
         kind: kind,
         rawString: string.slice(0, len),
         string: string.slice(skip, len-chop),
+        remaining: string.slice(len),
     }
 }
 
@@ -347,7 +349,7 @@ class ParseContext {
             return undefined;
         }
 
-        this.#remaining = this.#remaining.slice(token.rawString.length);
+        this.#remaining = token.remaining;
         this.#last = token;
         return token;
     }
@@ -361,13 +363,7 @@ class ParseContext {
         }
     }
 
-    consume(kind: TokenKind | TokenGroup): Token | undefined {
-        const token = this.check(kind);
-        this.pop();
-        return token;
-    }
-
-    consumeIf(kind: TokenKind | TokenGroup, cond: (token: Token) => boolean = () => true): Token | undefined {
+    consume(kind: TokenKind | TokenGroup, cond: (token: Token) => boolean = () => true): Token | undefined {
         const token = this.check(kind);
         if (!token) {
             return undefined;
@@ -435,21 +431,27 @@ function parseNode(ctx: ParseContext): Node | undefined {
 
     const node = makeNode(NodeKind.Main, "", "");
     node.tags = parseTagList(ctx);
+    ctx.debug(`got ${node.tags.length} tags`);
 
+    ctx.consumeAll(TokenGroup.Irregular);
     const maybeOpener = ctx.check(TokenKind.Reserved, t => "([{".includes(t.string));
     if (maybeOpener) {
         // Anonymous node (no name, just children)
+        ctx.debug("node is anonymous");
         const children = parseScopedChildren(ctx);
         node.children = children;
     }
 
+    ctx.consumeAll(TokenGroup.Irregular);
     const maybeLabel = ctx.check(TokenGroup.Label);
     if (maybeLabel) {
         // Named node
         const label = ctx.consume(TokenGroup.Label)!;
         node.string = label.string;
+        ctx.debug(`node is named: ${node.string}`);
         
-        const maybeColon = ctx.consumeIf(TokenKind.Reserved, t => t.string === ":");
+        ctx.consumeAll(TokenGroup.Irregular);
+        const maybeColon = ctx.consume(TokenKind.Reserved, t => t.string === ":");
         if (maybeColon) {
             ctx.consumeAll(TokenGroup.Whitespace);
             const opener = ctx.check(TokenKind.Reserved, t => "([{".includes(t.string));
@@ -469,10 +471,12 @@ function parseNode(ctx: ParseContext): Node | undefined {
 
 // @label[([scoped-children-list])] [tag-list]
 function parseTagList(ctx: ParseContext): Node[] {
+    ctx.debug("parseTagList");
+
     const result: Node[] = [];
 
     while (true) {
-        ctx.consumeAll(TokenGroup.Whitespace);
+        ctx.consumeAll(TokenGroup.Irregular);
 
         if (ctx.done()) {
             break;
@@ -508,6 +512,10 @@ function parseTagList(ctx: ParseContext): Node[] {
 
 // {scoped-children-list} | (|[ scoped-children-list )|]
 function parseScopedChildren(ctx: ParseContext): Node[] {
+    ctx.debug("parseScopedChildren");
+
+    ctx.consumeAll(TokenGroup.Irregular);
+
     const opener = ctx.consume(TokenKind.Reserved);
     const children = parseChildrenList(ctx, true);
     const closer = ctx.consume(TokenKind.Reserved);
@@ -527,6 +535,7 @@ function parseScopedChildren(ctx: ParseContext): Node[] {
 
 // [newline] unscoped-children-list ,|;|newline
 function parseUnscopedChildren(ctx: ParseContext): Node[] {
+    ctx.debug("parseUnscopedChildren");
     return parseChildrenList(ctx, false);
 }
 
@@ -536,18 +545,23 @@ function parseUnscopedChildren(ctx: ParseContext): Node[] {
 // scoped-children-list:   [whitespace-all] node [,|;|whitespace-all] [scoped-children-list]
 // unscoped-children-list: [whitespace-line] node [unscoped-children-list]
 function parseChildrenList(ctx: ParseContext, scoped: boolean): Node[] {
+    ctx.debug("parseChildrenList");
+
     const result: Node[] = [];
 
     if (!scoped) {
         // Unscoped children can occur after a single newline.
-        ctx.consumeIf(TokenKind.Newline);
+        const newline = ctx.consume(TokenKind.Newline);
+        if (newline) {
+            ctx.debug("newline before unscoped children");
+        }
     }
 
     let nextChildFlags: NodeFlags = NodeFlags.None;
     while (true) {
         if (scoped) {
             // Scoped children don't care about whitespace and exit on a closing delimiter.
-            ctx.consumeAll(TokenGroup.Whitespace);
+            ctx.consumeAll(TokenGroup.Irregular);
             const maybeCloser = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
             if (ctx.done() || maybeCloser) {
                 break;
@@ -555,9 +569,10 @@ function parseChildrenList(ctx: ParseContext, scoped: boolean): Node[] {
         } else {
             // Unscoped children can consume all whitespace but newlines, and end on different delimiters.
             ctx.consumeAll(TokenKind.Whitespace) // kind, not group!
-            const explicitEnd = ctx.check(TokenKind.Reserved, t => ",;".includes(t.string));
-            const implicitEnd = ctx.check(TokenKind.Newline);
+            const explicitEnd = !!ctx.check(TokenKind.Reserved, t => ",;".includes(t.string));
+            const implicitEnd = !!ctx.check(TokenKind.Newline);
             if (ctx.done() || explicitEnd || implicitEnd) {
+                ctx.debug(`end of unscoped children (e: ${explicitEnd}, i: ${implicitEnd})`);
                 break;
             }
         }
@@ -568,20 +583,131 @@ function parseChildrenList(ctx: ParseContext, scoped: boolean): Node[] {
         }
         
         ctx.consumeAll(TokenGroup.Whitespace);
-        const separator = ctx.consumeIf(TokenKind.Reserved, t => ",;".includes(t.string));
         
         node.flags |= nextChildFlags;
-        if (separator?.string === ",") {
-            node.flags |= NodeFlags.IsBeforeComma;
-            nextChildFlags |= NodeFlags.IsAfterComma;
-        }
-        if (separator?.string === ";") {
-            node.flags |= NodeFlags.IsBeforeSemicolon;
-            nextChildFlags |= NodeFlags.IsAfterSemicolon;
+
+        if (scoped) {
+            const separator = ctx.consume(TokenKind.Reserved, t => ",;".includes(t.string));
+            if (separator?.string === ",") {
+                node.flags |= NodeFlags.IsBeforeComma;
+                nextChildFlags |= NodeFlags.IsAfterComma;
+            }
+            if (separator?.string === ";") {
+                node.flags |= NodeFlags.IsBeforeSemicolon;
+                nextChildFlags |= NodeFlags.IsAfterSemicolon;
+            }
         }
 
         result.push(node);
     }
 
+    ctx.debug(`parsed ${result.length} ${scoped ? 'scoped' : 'unscoped'} children`);
+
     return result;
+}
+
+export enum GenerateFlags {
+    Tags         = 1 << 0,
+    TagArguments = 1 << 1,
+    Children     = 1 << 2,
+    Comments     = 1 << 3,
+    NodeKind     = 1 << 4,
+    NodeFlags    = 1 << 5,
+    Location     = 1 << 6,
+    
+    Tree = (
+        Tags
+        | TagArguments
+        | Children
+    ),
+    All = 0xffffffff,
+}
+
+export function debugDumpFromNode(
+    node: Node,
+    indent: number,
+    indentString: string,
+    flags: GenerateFlags,
+): string {
+    let out = '';
+
+    // TODO: previous comment
+
+    function printIndent() {
+        for (let i = 0; i < indent; i++) {
+            out += indentString;
+        }
+    }
+
+    // tags
+    if (flags & GenerateFlags.Tags) {
+        for (const tag of node.tags) {
+            printIndent();
+            out += `@${tag.string}`;
+            if (flags & GenerateFlags.TagArguments && tag.children.length > 0) {
+                const tagArgIndent = indent + 1 + tag.string.length + 1;
+                out += "(";
+                for (const [i, child] of tag.children.entries()) {
+                    if (i > 0) {
+                        out += ",\n";
+                    }
+                    let childIndent = i === 0 ? 0 : tagArgIndent;
+                    out += debugDumpFromNode(child, childIndent, " ", flags);
+                }
+                out += ")\n";
+            } else {
+                out += "\n";
+            }
+        }
+    }
+
+    // node kind
+    if (flags & GenerateFlags.NodeKind) {
+        printIndent();
+        out += `// kind: "${node.kind}"\n`; // TODO: stringFromNodeKind
+    }
+
+    // node flags
+    if (flags & GenerateFlags.NodeFlags) {
+        printIndent();
+        const flagsStr = stringListFromNodeFlags(node.flags).join("|");
+        out += `// flags: "${flagsStr}"\n`;
+    }
+
+    // location
+    // TODO
+
+    // name of node
+    if (node.string) {
+        printIndent();
+        if (node.kind === NodeKind.File) {
+            out += `\`${node.string}\``;
+        } else {
+            out += node.string; // TODO: in ryan's code, this is the raw string instead??
+        }
+    }
+
+    // children list
+    if (flags & GenerateFlags.Children && node.children.length > 0) {
+        if (node.string) {
+            out += ":\n";
+        }
+        printIndent();
+        out += "{\n";
+        for (const child of node.children) {
+            out += debugDumpFromNode(child, indent + 1, indentString, flags);
+            out += ",\n";
+        }
+        printIndent();
+        out += "}";
+    }
+
+    // next comment
+    // TODO
+
+    return out;
+}
+
+function stringListFromNodeFlags(flags: NodeFlags): string[] {
+    return ["flag", "lol"]; // TODO
 }
