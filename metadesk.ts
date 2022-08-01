@@ -16,12 +16,11 @@
  * General advice:
  * - Consume all whitespace before handing off to another function. Whitespace is important; only
  *   consume it when you know you can.
- * Replace all while(true) with reasonably bounded generators
  * Remove TokenGroup in favor of simple constants
  * Elide whitespace tokens that immediately precede newline tokens
  */
 
-const DEBUG = true;
+const DEBUG = false;
 
 enum NodeKind {
     Nil,
@@ -385,7 +384,7 @@ class ParseContext {
         cond: (token: Token) => boolean = () => true,
     ): Token[] {
         const tokens: Token[] = [];
-        while (true) {
+        for (const _ of forever()) {
             const token = this.consume(kind, cond);
             if (!token) {
                 break;
@@ -505,7 +504,7 @@ export function _parseTagList(ctx: ParseContext): Node[] {
 
     const result: Node[] = [];
 
-    while (true) {
+    for (const _ of forever()) {
         const at = ctx.consume(TokenKind.Reserved, t => t.string === "@");
         if (!at) {
             break;
@@ -596,7 +595,7 @@ function _parseExplicitChildren(ctx: ParseContext): Node[] {
     const result: Node[] = [];
 
     let nextNodeFlags: NodeFlags = 0;
-    while (true) {
+    for (const _ of forever()) {
         ctx.consumeAll(TokenGroup.Whitespace);
 
         const node = _parseNode(ctx);
@@ -653,7 +652,7 @@ function _parseImplicitList(ctx: ParseContext): Node[] {
     ctx.debug("parseImplicitList");
 
     const result: Node[] = [];
-    while (forever()) {
+    for (const _ of forever()) {
         ctx.consumeAll(TokenKind.Whitespace);
 
         const node = _parseNode(ctx);
