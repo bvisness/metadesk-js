@@ -15,9 +15,11 @@ io: {
 `;
 
 str = `
-foo: [hello goodbye, johnson]
-bar: 1 2 3
+foo: hello goodbye, johnson
+bar: 1 2 3, he said
 
+@one @two(beep boop)
+@three
 baz:
 4 5 6
 `;

@@ -400,6 +400,7 @@ class ParseContext {
     }
 
     error(msg: string) {
+        this.debug(`ERROR! ${msg}`)
         this.#errors.push(msg);
     }
 
@@ -480,6 +481,7 @@ export function _parseNode(ctx: ParseContext): Node | undefined {
             }
         } else {
             ctx.error(`expected a valid node label, but got "${ctx.check()?.string ?? "end of file"}" instead`);
+            return undefined;
         }
     }
 
@@ -515,15 +517,19 @@ export function _parseTagList(ctx: ParseContext): Node[] {
             break;
         }
 
+        ctx.debug(`tag is named: ${label.string}`);
+
         const tagNode = makeNode(NodeKind.Tag, label.string, label.rawString);
         const [tagChildren, tagFlags] = _parseExplicitList(ctx);
         tagNode.flags |= tagFlags;
         
-        const childrenAreParenthesized = !(tagNode.flags&NodeFlags.HasParenLeft && tagNode.flags&NodeFlags.HasParenRight);
+        const childrenAreParenthesized = tagNode.flags&NodeFlags.HasParenLeft && tagNode.flags&NodeFlags.HasParenRight;
         if (tagChildren !== undefined && !childrenAreParenthesized) {
             ctx.error("tag children can only be delimited using parentheses");
         }
         tagNode.children = tagChildren ?? [];
+
+        result.push(tagNode);
 
         ctx.consumeAll(TokenGroup.Whitespace);
     }
@@ -546,6 +552,7 @@ function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] 
 
     const opener = ctx.consume(TokenKind.Reserved, t => "([{".includes(t.string));
     if (!opener) {
+        ctx.debug("no list")
         return [undefined, 0];
     }
     switch (opener.string) {
@@ -598,9 +605,17 @@ function _parseExplicitChildren(ctx: ParseContext): Node[] {
         }
         node.flags |= nextNodeFlags;
         nextNodeFlags = 0;
+        result.push(node); // this is JS, so we can continue to modify node after pushing it
 
         ctx.consumeAll(TokenGroup.Whitespace);
-        const separator = ctx.consume(TokenKind.Reserved);
+
+        // Check if we need to bail
+        const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
+        if (endDelimiter || ctx.done()) {
+            break;
+        }
+
+        const separator = ctx.consume(TokenKind.Reserved, t => ",;".includes(t.string));
         if (separator) {
             switch (separator.string) {
                 case ",": {
@@ -611,18 +626,13 @@ function _parseExplicitChildren(ctx: ParseContext): Node[] {
                     node.flags |= NodeFlags.IsBeforeSemicolon;
                     nextNodeFlags |= NodeFlags.IsAfterSemicolon;
                 } break;
-                default: {
-                    ctx.error(`unexpected character ${separator.string} in a list of nodes`);
-                } break;
+                // default: {
+                //     ctx.error(`unexpected character ${separator.string} in a list of nodes`);
+                // } break;
             }
         }
 
-        ctx.consumeAll(TokenGroup.Whitespace);
-
-        const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
-        if (endDelimiter || ctx.done()) {
-            break;
-        }
+        ctx.consumeAll(TokenGroup.Whitespace);        
     }
 
     return result;
@@ -642,7 +652,7 @@ function _parseExplicitChildren(ctx: ParseContext): Node[] {
 function _parseImplicitList(ctx: ParseContext): Node[] {
     ctx.debug("parseImplicitList");
 
-    const children: Node[] = [];
+    const result: Node[] = [];
     while (forever()) {
         ctx.consumeAll(TokenKind.Whitespace);
 
@@ -651,6 +661,7 @@ function _parseImplicitList(ctx: ParseContext): Node[] {
             ctx.error("expected a node");
             break;
         }
+        result.push(node);
 
         const nextIsSeparator = ctx.check(TokenKind.Reserved, t => ",;".includes(t.string));
         const nextIsNewline = ctx.check(TokenKind.Newline);
@@ -666,7 +677,7 @@ function _parseImplicitList(ctx: ParseContext): Node[] {
         }
     }
 
-    return children;
+    return result;
 }
 
 export enum GenerateFlags {
