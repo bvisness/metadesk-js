@@ -19,6 +19,8 @@
  * Remove TokenGroup in favor of simple constants
  * Elide whitespace tokens that immediately precede newline tokens
  * Allow comments in nearly any whitespace, and make aggregation of comments easy.
+ * - Weird nuance: comments could sometimes do "double duty", either "after" a node or "before" the
+ *   next. How to handle this?
  */
 
 const DEBUG = false;
