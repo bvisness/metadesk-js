@@ -25,12 +25,12 @@ io: {
 // 4 5 6
 // `;
 
-str = `
-"named but empty": ()
-"anonymous and empty" ()
-"empty but also whitespace": (   	
-  )
-`
+// str = `
+// "named but empty": ()
+// "anonymous and empty" ()
+// "empty but also whitespace": (   	
+//   )
+// `
 
 let tokenStr = str;
 let token;

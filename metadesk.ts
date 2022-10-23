@@ -18,6 +18,7 @@
  *   consume it when you know you can.
  * Remove TokenGroup in favor of simple constants
  * Elide whitespace tokens that immediately precede newline tokens
+ * Allow comments in nearly any whitespace, and make aggregation of comments easy.
  */
 
 const DEBUG = true;
@@ -185,7 +186,7 @@ export function tokenKindName(kind: TokenKind) {
 enum TokenGroup {
     Comment     = TokenKind.Comment,
     Whitespace  = TokenKind.Whitespace | TokenKind.Newline,
-    Irregular   = TokenKind.Comment | TokenKind.Whitespace,
+    Irregular   = TokenKind.Comment | TokenKind.Whitespace | TokenKind.Newline, // TODO: I added newline. Is this a problem?
     Regular     = ~Irregular,
     Label       = TokenKind.Identifier
                     | TokenKind.Numeric
@@ -528,7 +529,7 @@ class ParseContext {
 /**
  * Grammar:
  * 
- *     ( comment | whitespace-all )*
+ *     [ whitespace-all ] -- TODO: but also comments?? Maybe comments should be part of the "whitespace" group.
  *     [ tag-list ]
  *     (
  *         label [ ':' [ whitespace-line | newline ] ( [ whitespace-all ] explicit-list | implicit-list ) ]
@@ -542,7 +543,7 @@ export function _parseNode(ctx: ParseContext): Node | undefined {
 
     const node = makeNode(NodeKind.Main, "", "", ctx.offset);
 
-    const preamble = ctx.consumeAll(TokenKind.Comment | TokenGroup.Whitespace);
+    const preamble = ctx.consumeAll(TokenGroup.Irregular);
     // TODO: Grab comments and assemble the "pre-comment" stuff
 
     node.tags = _parseTagList(ctx);
@@ -585,6 +586,8 @@ export function _parseNode(ctx: ParseContext): Node | undefined {
             return undefined;
         }
     }
+
+    // TODO: post-comment stuff?
 
     const endOffset = ctx.offset;
     node.rawString = ctx.source.slice(startOffset, endOffset);
@@ -700,7 +703,7 @@ function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] 
 function _parseExplicitChildren(ctx: ParseContext): Node[] {
     const result: Node[] = [];
 
-    // Early out if totally empty
+    // Early out if empty
     ctx.consumeAll(TokenGroup.Whitespace);
     const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
     if (endDelimiter || ctx.done()) {
@@ -719,13 +722,7 @@ function _parseExplicitChildren(ctx: ParseContext): Node[] {
         nextNodeFlags = 0;
         result.push(node); // this is JS, so we can continue to modify node after pushing it
 
-        ctx.consumeAll(TokenGroup.Whitespace);
-
-        // Check if we need to bail
-        const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
-        if (endDelimiter || ctx.done()) {
-            break;
-        }
+        ctx.consumeAll(TokenGroup.Irregular);
 
         const separator = ctx.consume(TokenKind.Reserved, t => ",;".includes(t.string));
         if (separator) {
@@ -744,7 +741,14 @@ function _parseExplicitChildren(ctx: ParseContext): Node[] {
             }
         }
 
-        ctx.consumeAll(TokenGroup.Whitespace);        
+        // TODO: This might eat comments that should be "before" a subsequent node.
+        ctx.consumeAll(TokenGroup.Irregular);
+
+        // Check if we need to bail
+        const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
+        if (endDelimiter || ctx.done()) {
+            break;
+        }
     }
 
     return result;
