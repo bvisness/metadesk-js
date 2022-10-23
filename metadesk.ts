@@ -20,7 +20,7 @@
  * Elide whitespace tokens that immediately precede newline tokens
  */
 
-const DEBUG = false;
+const DEBUG = true;
 
 enum NodeKind {
     Nil,
@@ -528,6 +528,7 @@ class ParseContext {
 /**
  * Grammar:
  * 
+ *     ( comment | whitespace-all )*
  *     [ tag-list ]
  *     (
  *         label [ ':' [ whitespace-line | newline ] ( [ whitespace-all ] explicit-list | implicit-list ) ]
@@ -540,6 +541,10 @@ export function _parseNode(ctx: ParseContext): Node | undefined {
     const startOffset = ctx.offset;
 
     const node = makeNode(NodeKind.Main, "", "", ctx.offset);
+
+    const preamble = ctx.consumeAll(TokenKind.Comment | TokenGroup.Whitespace);
+    // TODO: Grab comments and assemble the "pre-comment" stuff
+
     node.tags = _parseTagList(ctx);
     ctx.debug(`got ${node.tags.length} tags`);
 
@@ -684,7 +689,9 @@ function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] 
 /**
  * Grammar:
  * 
- *     [ whitespace-all ] node [ whitespace-all ] [ ',' | ';' | whitespace-all ] [ whitespace-all ] [ explicit-children ]
+ *     [ whitespace-all ] [
+ *         node [ whitespace-all ] [ ',' | ';' | whitespace-all ] [ whitespace-all ] [ explicit-children ]
+ *     ]
  * 
  * Since this part of the grammar only occurs within `explicit-list` and `file`, this function will
  * exit when it sees either a closing delimiter or the end of the token stream. It will not consume
@@ -692,6 +699,13 @@ function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] 
  */
 function _parseExplicitChildren(ctx: ParseContext): Node[] {
     const result: Node[] = [];
+
+    // Early out if totally empty
+    ctx.consumeAll(TokenGroup.Whitespace);
+    const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
+    if (endDelimiter || ctx.done()) {
+        return result;
+    }
 
     let nextNodeFlags: NodeFlags = 0;
     for (const _ of forever()) {
