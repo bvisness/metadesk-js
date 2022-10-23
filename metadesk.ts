@@ -21,7 +21,7 @@
  * Allow comments in nearly any whitespace, and make aggregation of comments easy.
  */
 
-const DEBUG = true;
+const DEBUG = false;
 
 enum NodeKind {
     Nil,

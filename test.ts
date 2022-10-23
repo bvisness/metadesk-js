@@ -52,7 +52,6 @@ while (token = getToken(tokenStr)) {
 console.log('------------------------');
 
 const parsed = parse(str);
-console.log(parsed);
 console.log(debugDumpFromNode(parsed.node!, 0, "  ", GenerateFlags.Tree))
 for (const err of parsed.fancyErrors()) {
 	console.log(err);
