@@ -91,14 +91,6 @@ export class ParseResult {
         return this.#ctx.errors;
     }
 
-/*
-error[E0381]: borrow of possibly-uninitialized variable: `x`
-  --> src/main.rs:11:21
-   |
-11 |         println!("{}", x); // write to file
-   |                        ^ use of possibly-uninitialized `x`
-*/
-
     fancyErrors() {
         return this.errors.map(err => {
             const amt = 20;
@@ -349,6 +341,7 @@ export function getToken(string: string): Token | undefined {
                     if (string[len] === delim) {
                         consecutiveDelims += 1;
                         if (consecutiveDelims === 3) {
+                            len += 1; // The last quote doesn't get captured without this because the loop increment doesn't run
                             chop = 3;
                             kind = TokenKind.StringLiteral;
                             break;
