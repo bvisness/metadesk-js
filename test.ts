@@ -27,7 +27,7 @@ io: {
 let tokenStr = str;
 let token;
 while (token = getToken(tokenStr)) {
-    console.log(token);
+    console.log(token.toString());
     tokenStr = token.remaining;
 }
 

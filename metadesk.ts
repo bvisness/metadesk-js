@@ -70,8 +70,12 @@ function makeNode(kind: NodeKind, str: string, rawStr: string, offset: number): 
     };
 }
 
+// TODO: This sucks and isn't universally useful. Error messages should actually show the source
+// as it appears. Other things should not. I dunno.
 function sanitize(str: string): string {
-    return str.replace(/\n/g, "\\n");
+    str = str.replace(/\n/g, "\\n");
+    str = str.replace(/\t/g, "\\t");
+    return str;
 }
 
 export class ParseResult {
@@ -140,6 +144,52 @@ enum TokenKind {
     All = ~0,
 }
 
+export function tokenKindName(kind: TokenKind) {
+    if (kind === TokenKind.Invalid) {
+        return "Invalid";
+    }
+    if (kind === TokenKind.All) {
+        return "All";
+    }
+    
+    const names: string[] = [];
+    if (kind & TokenKind.Identifier) {
+        names.push("Identifier");
+    }
+    if (kind & TokenKind.Numeric) {
+        names.push("Numeric");
+    }
+    if (kind & TokenKind.StringLiteral) {
+        names.push("StringLiteral");
+    }
+    if (kind & TokenKind.Symbol) {
+        names.push("Symbol");
+    }
+    if (kind & TokenKind.Reserved) {
+        names.push("Reserved");
+    }
+    if (kind & TokenKind.Comment) {
+        names.push("Comment");
+    }
+    if (kind & TokenKind.Whitespace) {
+        names.push("Whitespace");
+    }
+    if (kind & TokenKind.Newline) {
+        names.push("Newline");
+    }
+    if (kind & TokenKind.BrokenComment) {
+        names.push("BrokenComment");
+    }
+    if (kind & TokenKind.BrokenStringLiteral) {
+        names.push("BrokenStringLiteral");
+    }
+    if (kind & TokenKind.BadCharacter) {
+        names.push("BadCharacter");
+    }
+
+    return names.join(', ');
+}
+
 enum TokenGroup {
     Comment     = TokenKind.Comment,
     Whitespace  = TokenKind.Whitespace | TokenKind.Newline,
@@ -190,12 +240,28 @@ enum NodeFlags {
     MaskLabelKind = 0xF << 14,
 }
 
-interface Token {
-    kind: TokenKind,
+export class Token {
+    kind: TokenKind
     // TODO: flags?
-    string: string,
-    rawString: string,
-    remaining: string,
+    string: string
+    rawString: string
+    remaining: string
+
+    constructor(kind: TokenKind, string: string, rawString: string, remaining: string) {
+        this.kind = kind;
+        this.string = string;
+        this.rawString = rawString;
+        this.remaining = remaining;
+    }
+
+    toString(): string {
+        let val = sanitize(this.string);
+        const name = tokenKindName(this.kind);
+        if (/^ +$/.test(val)) {
+            val = `"${val}"`
+        }
+        return `${val} (${name})`;
+    }
 }
 
 export function getToken(string: string): Token | undefined {
@@ -362,12 +428,7 @@ export function getToken(string: string): Token | undefined {
         } break;
     }
 
-    return {
-        kind: kind,
-        rawString: string.slice(0, len),
-        string: string.slice(skip, len-chop),
-        remaining: string.slice(len),
-    }
+    return new Token(kind, string.slice(0, len), string.slice(skip, len-chop), string.slice(len));
 }
 
 function charIsUnreservedSymbol(c: string): boolean {
