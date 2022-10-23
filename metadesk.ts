@@ -247,7 +247,7 @@ export class Token {
     }
 
     toString(): string {
-        let val = sanitize(this.string);
+        let val = sanitize(this.rawString);
         const name = tokenKindName(this.kind);
         if (/^ +$/.test(val)) {
             val = `"${val}"`
@@ -421,7 +421,7 @@ export function getToken(string: string): Token | undefined {
         } break;
     }
 
-    return new Token(kind, string.slice(0, len), string.slice(skip, len-chop), string.slice(len));
+    return new Token(kind, string.slice(skip, len-chop), string.slice(0, len), string.slice(len));
 }
 
 function charIsUnreservedSymbol(c: string): boolean {
