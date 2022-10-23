@@ -14,15 +14,15 @@ io: {
 }
 `;
 
-str = `
-foo: hello goodbye, johnson
-bar: 1 2 3, he said
+// str = `
+// foo: hello goodbye, johnson
+// bar: 1 2 3, he said
 
-@one @two(beep boop)
-@three
-baz:
-4 5 6
-`;
+// @one @two(beep boop)
+// @three
+// baz:
+// 4 5 6
+// `;
 
 let tokenStr = str;
 let token;
@@ -36,3 +36,6 @@ console.log('------------------------');
 const parsed = parse(str);
 console.log(parsed);
 console.log(debugDumpFromNode(parsed.node!, 0, "  ", GenerateFlags.Tree))
+for (const err of parsed.fancyErrors()) {
+	console.log(err);
+}

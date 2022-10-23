@@ -43,7 +43,7 @@ interface Node {
     flags: NodeFlags,
     string: string,
     rawString: string,
-    // TODO: offset,
+    offset: number,
 
     next: Node | undefined,
     prev: Node | undefined,
@@ -53,12 +53,13 @@ interface Node {
     tags: Node[],
 }
 
-function makeNode(kind: NodeKind, str: string, rawStr: string): Node {
+function makeNode(kind: NodeKind, str: string, rawStr: string, offset: number): Node {
     return {
         kind: kind,
         flags: NodeFlags.None,
         string: str,
         rawString: rawStr,
+        offset: offset,
 
         next: undefined,
         prev: undefined,
@@ -69,21 +70,55 @@ function makeNode(kind: NodeKind, str: string, rawStr: string): Node {
     };
 }
 
-interface ParseResult {
-    node: Node | undefined,
-    errors: string[],
+function sanitize(str: string): string {
+    return str.replace(/\n/g, "\\n");
+}
+
+export class ParseResult {
+    node: Node | undefined
+    #ctx: ParseContext
+
+    constructor(node: Node | undefined, ctx: ParseContext) {
+        this.node = node;
+        this.#ctx = ctx;
+    }
+
+    get errors() {
+        return this.#ctx.errors;
+    }
+
+/*
+error[E0381]: borrow of possibly-uninitialized variable: `x`
+  --> src/main.rs:11:21
+   |
+11 |         println!("{}", x); // write to file
+   |                        ^ use of possibly-uninitialized `x`
+*/
+
+    fancyErrors() {
+        return this.errors.map(err => {
+            const amt = 20;
+            const before = sanitize(this.#ctx.source.slice(err.offset - amt, err.offset));
+            const promblem = sanitize(this.#ctx.source.slice(err.offset, err.offset + 1));
+            const after = sanitize(this.#ctx.source.slice(err.offset + 1, err.offset + amt));
+            const pad = " ".repeat(before.length);
+            return `ERROR: ${err.message}
+ |
+ | ${before}${promblem}${after}
+ | ${pad}^
+ |
+`
+        });
+    }
 }
 
 export function parse(source: string): ParseResult {
     const ctx = new ParseContext(source);
     
-    const root = makeNode(NodeKind.File, "", source);
+    const root = makeNode(NodeKind.File, "", source, 0);
     root.children = _parseExplicitChildren(ctx)
 
-    return {
-        node: root,
-        errors: ctx.errors,
-    }
+    return new ParseResult(root, ctx);
 }
 
 enum TokenKind {
@@ -343,11 +378,16 @@ function charIsReservedSymbol(c: string): boolean {
     return "{}()\\[]#,;:@".includes(c);
 }
 
+interface Error {
+    message: string,
+    offset: number,
+}
+
 class ParseContext {
     #source: string;
     #remaining: string;
     #last: Token | undefined;
-    #errors: string[];
+    #errors: Error[];
 
     constructor(source: string) {
         this.#source = source;
@@ -398,9 +438,12 @@ class ParseContext {
         return !this.check();
     }
 
-    error(msg: string) {
+    error(msg: string, offset: number = this.offset) {
         this.debug(`ERROR! ${msg}`)
-        this.#errors.push(msg);
+        this.#errors.push({
+            message: msg,
+            offset: offset,
+        });
     }
 
     debug(msg: string) {
@@ -423,7 +466,7 @@ class ParseContext {
         return this.#source.length - this.#remaining.length;
     }
 
-    get errors(): string[] {
+    get errors(): Error[] {
         return this.#errors;
     }
 }
@@ -442,7 +485,7 @@ export function _parseNode(ctx: ParseContext): Node | undefined {
 
     const startOffset = ctx.offset;
 
-    const node = makeNode(NodeKind.Main, "", "");
+    const node = makeNode(NodeKind.Main, "", "", ctx.offset);
     node.tags = _parseTagList(ctx);
     ctx.debug(`got ${node.tags.length} tags`);
 
@@ -479,7 +522,7 @@ export function _parseNode(ctx: ParseContext): Node | undefined {
                 }
             }
         } else {
-            ctx.error(`expected a valid node label, but got "${ctx.check()?.string ?? "end of file"}" instead`);
+            ctx.error(`expected a valid node label, but got "${sanitize(ctx.check()?.string ?? "end of file")}" instead`);
             return undefined;
         }
     }
@@ -512,19 +555,20 @@ export function _parseTagList(ctx: ParseContext): Node[] {
 
         const label = ctx.consume(TokenGroup.Label);
         if (!label) {
-            ctx.error(`"${ctx.last?.rawString}" is not a proper tag label`);
+            ctx.error(`"${sanitize(ctx.last?.rawString ?? "<undefined>")}" is not a proper tag label`);
             break;
         }
 
         ctx.debug(`tag is named: ${label.string}`);
 
-        const tagNode = makeNode(NodeKind.Tag, label.string, label.rawString);
+        const tagNode = makeNode(NodeKind.Tag, label.string, label.rawString, ctx.offset);
+        const tagChildrenOffset = ctx.offset;
         const [tagChildren, tagFlags] = _parseExplicitList(ctx);
         tagNode.flags |= tagFlags;
         
         const childrenAreParenthesized = tagNode.flags&NodeFlags.HasParenLeft && tagNode.flags&NodeFlags.HasParenRight;
         if (tagChildren !== undefined && !childrenAreParenthesized) {
-            ctx.error("tag children can only be delimited using parentheses");
+            ctx.error("tag children can only be delimited using parentheses", tagChildrenOffset);
         }
         tagNode.children = tagChildren ?? [];
 
@@ -549,6 +593,7 @@ function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] 
 
     let parentFlags: NodeFlags = 0;
 
+    const openerOffset = ctx.offset;
     const opener = ctx.consume(TokenKind.Reserved, t => "([{".includes(t.string));
     if (!opener) {
         ctx.debug("no list")
@@ -570,7 +615,7 @@ function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] 
         && ")]".includes(closer.string)
     );
     if (!(isBraced || isBracketed)) {
-        ctx.error(`"${opener.string}" and "${closer?.string}" cannot be used together`);
+        ctx.error(`"${opener.string}" and "${closer?.string}" cannot be used together`, openerOffset);
     }
 
     switch (closer?.string) {
