@@ -11,6 +11,16 @@ io: {
 		// We do our own thing for these that adds deadband and stuff.
 		double GetTwist();
 		@nolua double GetThrottle(); // we do our own implementation of this
+
+		// hey i feel like if you're reading this you should know, WPI officially supports a guitar controller
+
+		// GenericHID
+		@alias(GetButtonHeld) bool GetRawButton(@enum(XboxButton) int button);
+		@nolua double GetRawAxis(int axis); // we will write a custom getAxis with deadband
+		int GetPOV(@default(0) int port); // Note that this takes an optional argument in case you somehow have more than one POV. I'm leaving that argument out.
+		int GetAxisCount();
+
+		// SetRumble(@cast("frc::GenericHID::RumbleType") int type, double value);
 	}
 }
 `;
