@@ -21,6 +21,8 @@
  * - Weird nuance: comments could sometimes do "double duty", either "after" a node or "before" the
  *   next. How to handle this?
  * Spec out Unicode handling.
+ * ESLint, bundling setup, node support for scripts
+ * Real tests
  * 
  * =========
  *  Grammar
@@ -35,9 +37,9 @@
  *   LINE-COMMENT:  Line comments start with a "//" and continue up to (but do not include) a CR
  *                  or LF.
  *   BLOCK-COMMENT: Block comments start with a "/*" and continue until a "*​/". Block comments can
- *                  be nested, so all pairs of "/*" and "*​/" must be balanced. If JavaScript did
+ *                  be nested, so all pairs of "/*" and "*​/" must be balanced. (If JavaScript did
  *                  this, then I wouldn't have to use zero-width spaces in this comment every time
- *                  I write "*​/"!
+ *                  I write "*​/"!)
  *   SPACE:         " ", "\r", "\t", "\f", or "\v". Equivalent to C's isspace, excluding newlines.
  *   NEWLINE:       "\n". This grammar does not recognize CRLF as a newline, but will handle CRLF
  *                  just fine regardless.
@@ -58,31 +60,28 @@
  * 
  * Now, the grammar, in ABNF notation:
  * 
+ *   label              = IDENTIFIER / NUMERIC / STRING / SYMBOL
  *   comment            = LINE-COMMENT / BLOCK-COMMENT
  *   whitespace-line    = 1*(SPACE / comment)
  *   whitespace-all     = 1*(SPACE / NEWLINE / comment)
  * 
- *   label              = IDENTIFIER / NUMERIC / STRING / SYMBOL
+ *   ; Whitespace including at most one newline can appear in multiple places in the definition of
+ *   ; a node. Two newlines is not allowed because it causes too much visual separation.
+ *   whitespace-node    = whitespace-line [NEWLINE] [whitespace-line]
  * 
- *   node               = [whitespace-all] [tag-list] (named-node / anonymous-node)
- *   named-node         = label [":" [whitespace-line] [NEWLINE] [whitespace-line] (
- *                          explicit-list / implicit-list
- *                        )]
+ *   node               = [tag-list [whitespace-all]] (named-node / anonymous-node)
+ *   named-node         = label [":" [whitespace-node] (explicit-list / implicit-list)]
  *   anonymous-node     = explicit-list
  * 
- *   tag-list           = "@" label [explicit-list] [whitespace-all tag-list]
+ *   tag-list           = "@" label [explicit-list] [whitespace-all] [tag-list]
  * 
  *   explicit-list      = ("(" / "[" / "{") explicit-children (")" / "]" / "}")
- *   explicit-children  = [whitespace-all] [
- *                          node
- *                          [whitespace-all] [SEPARATOR] [whitespace-all] 
- *                          [explicit-children]
- *                        ]
+ *   explicit-children  = [whitespace-all] [node [whitespace-all] [SEPARATOR] explicit-children]
  *   implicit-list      = implicit-children (SEPARATOR / NEWLINE)
- *   implicit-children  = [whitespace-line] node [whitespace-line implicit-children]
+ *   implicit-children  = node [whitespace-line] [implicit-children]
  * 
- *   root               = explicit-children ; The file itself is parsed as an explicit list of
- *                                            children, but delimited by the end of the file.
+ *   root               = explicit-children ; The source itself is parsed as an explicit list of
+ *                                            nodes, but "delimited" by the end of the file.
  * 
  * Some general notes about this grammar:
  * 
@@ -92,6 +91,33 @@
  */
 
 const DEBUG = false;
+
+enum TokenKind {
+    Invalid = 0,
+
+    Identifier      = 1 << 0,
+    Numeric         = 1 << 1,
+    StringLiteral   = 1 << 2,
+    Symbol          = 1 << 3,
+    Reserved        = 1 << 4,
+    Comment         = 1 << 5,
+    Whitespace      = 1 << 6,
+    Newline         = 1 << 7,
+
+    BrokenComment       = 1 << 8,
+    BrokenStringLiteral = 1 << 9,
+    BadCharacter        = 1 << 10,
+}
+
+const AllTokens = ~0;
+const Label = (
+    TokenKind.Identifier
+    | TokenKind.Numeric
+    | TokenKind.StringLiteral
+    | TokenKind.Symbol
+);
+const WhitespaceLine = TokenKind.Whitespace | TokenKind.Comment;
+const WhitespaceAll = TokenKind.Whitespace | TokenKind.Newline | TokenKind.Comment;
 
 enum NodeKind {
     Nil,
@@ -103,42 +129,38 @@ enum NodeKind {
     // Parsed from user Metadesk code
     Main,
     Tag,
+}
+
+export class Node {
+    kind: NodeKind
+    flags: NodeFlags
+    string: string
+    rawString: string
+    offset: number
+    comment: string
+
+    next: Node | undefined
+    prev: Node | undefined
+    parent: Node | undefined
+
+    children: Node[]
+    tags: Node[]
+
+    constructor(kind: NodeKind, str: string, rawStr: string, offset: number) {
+        this.kind = kind;
+        this.flags = NodeFlags.None;
+        this.string = str;
+        this.rawString = rawStr;
+        this.offset = offset;
+        this.comment = "";
     
-    // // NOTE(rjf): User-created data structures
-    // List,
-    // Reference,
-}
+        this.next = undefined;
+        this.prev = undefined;
+        this.parent = undefined;
 
-interface Node {
-    kind: NodeKind,
-    flags: NodeFlags,
-    string: string,
-    rawString: string,
-    offset: number,
-
-    next: Node | undefined,
-    prev: Node | undefined,
-    parent: Node | undefined,
-
-    children: Node[],
-    tags: Node[],
-}
-
-function makeNode(kind: NodeKind, str: string, rawStr: string, offset: number): Node {
-    return {
-        kind: kind,
-        flags: NodeFlags.None,
-        string: str,
-        rawString: rawStr,
-        offset: offset,
-
-        next: undefined,
-        prev: undefined,
-        parent: undefined,
-
-        children: [],
-        tags: [],
-    };
+        this.children = [];
+        this.tags = [];
+    }
 }
 
 // TODO: This sucks and isn't universally useful. Error messages should actually show the source
@@ -166,12 +188,12 @@ export class ParseResult {
         return this.errors.map(err => {
             const amt = 20;
             const before = sanitize(this.#ctx.source.slice(err.offset - amt, err.offset));
-            const promblem = sanitize(this.#ctx.source.slice(err.offset, err.offset + 1));
+            const problem = sanitize(this.#ctx.source.slice(err.offset, err.offset + 1));
             const after = sanitize(this.#ctx.source.slice(err.offset + 1, err.offset + amt));
             const pad = " ".repeat(before.length);
             return `ERROR: ${err.message}
  |
- | ${before}${promblem}${after}
+ | ${before}${problem}${after}
  | ${pad}^
  |
 `
@@ -182,44 +204,10 @@ export class ParseResult {
 export function parse(source: string): ParseResult {
     const ctx = new ParseContext(source);
     
-    const root = makeNode(NodeKind.File, "", source, 0);
-    root.children = _parseExplicitChildren(ctx)
+    const root = new Node(NodeKind.File, "", source, 0);
+    root.children = ctx.parseExplicitChildren();
 
     return new ParseResult(root, ctx);
-}
-
-enum TokenKind {
-    Invalid = 0,
-
-    Identifier      = 1 << 0,
-    Numeric         = 1 << 1,
-    StringLiteral   = 1 << 2,
-    Symbol          = 1 << 3,
-    Reserved        = 1 << 4,
-    Comment         = 1 << 5,
-    Whitespace      = 1 << 6,
-    Newline         = 1 << 7,
-
-    BrokenComment       = 1 << 8,
-    BrokenStringLiteral = 1 << 9,
-    BadCharacter        = 1 << 10,
-}
-
-const 
-
-enum TokenGroup {
-    Whitespace  = TokenKind.Whitespace | TokenKind.Newline,
-    Irregular   = TokenKind.Comment | TokenKind.Whitespace | TokenKind.Newline, // TODO: I added newline. Is this a problem?
-    Regular     = ~Irregular,
-    Label       = TokenKind.Identifier
-                    | TokenKind.Numeric
-                    | TokenKind.StringLiteral
-                    | TokenKind.Symbol,
-    Error       = TokenKind.BrokenComment
-                    | TokenKind.BrokenStringLiteral
-                    | TokenKind.BadCharacter,
-    
-    All = ~0,
 }
 
 export function tokenKindName(kind: TokenKind) {
@@ -491,6 +479,16 @@ export function getToken(string: string): Token | undefined {
     return new Token(kind, string.slice(skip, len-chop), string.slice(0, len), string.slice(len));
 }
 
+function getLastComment(tokens: Token[]): Token | undefined {
+    let comment: Token | undefined = undefined;
+    for (const token of tokens) {
+        if (token.kind === TokenKind.Comment) {
+            comment = token;
+        }
+    }
+    return comment;
+}
+
 function charIsUnreservedSymbol(c: string): boolean {
     return "~!$%^&*-=+<.>/?|".includes(c);
 }
@@ -505,22 +503,22 @@ interface Error {
 }
 
 class ParseContext {
-    #source: string;
-    #remaining: string;
-    #last: Token | undefined;
-    #errors: Error[];
+    source: string;
+    remaining: string;
+    last: Token | undefined;
+    errors: Error[];
 
     constructor(source: string) {
-        this.#source = source;
-        this.#remaining = source;
-        this.#errors = [];
+        this.source = source;
+        this.remaining = source;
+        this.errors = [];
     }
 
     check(
-        kind: TokenKind | TokenGroup = TokenGroup.All,
+        kind: TokenKind = AllTokens,
         cond: (token: Token) => boolean = () => true,
     ): Token | undefined {
-        const token = getToken(this.#remaining);
+        const token = getToken(this.remaining);
         if (token && (token.kind & kind) && cond(token)) {
             return token;
         } else {
@@ -529,19 +527,19 @@ class ParseContext {
     }
 
     consume(
-        kind: TokenKind | TokenGroup = TokenGroup.All,
+        kind: TokenKind = AllTokens,
         cond: (token: Token) => boolean = () => true,
     ): Token | undefined {
         const token = this.check(kind, cond);
         if (token) {
-            this.#remaining = token.remaining;
-            this.#last = token;
+            this.remaining = token.remaining;
+            this.last = token;
         }
         return token;
     }
 
     consumeAll(
-        kind: TokenKind | TokenGroup = TokenGroup.All,
+        kind: TokenKind = AllTokens,
         cond: (token: Token) => boolean = () => true,
     ): Token[] {
         const tokens: Token[] = [];
@@ -561,7 +559,7 @@ class ParseContext {
 
     error(msg: string, offset: number = this.offset) {
         this.debug(`ERROR! ${msg}`)
-        this.#errors.push({
+        this.errors.push({
             message: msg,
             offset: offset,
         });
@@ -571,294 +569,293 @@ class ParseContext {
         if (!DEBUG) return;
         console.log({
             msg,
-            remaining: this.#remaining.slice(0, Math.min(30, this.#remaining.length)),
+            remaining: this.remaining.slice(0, Math.min(30, this.remaining.length)),
         });
     }
 
-    get source(): string {
-        return this.#source;
-    }
-
-    get last(): Token | undefined {
-        return this.#last;
-    }
-
     get offset(): number {
-        return this.#source.length - this.#remaining.length;
+        return this.source.length - this.remaining.length;
     }
 
-    get errors(): Error[] {
-        return this.#errors;
+    /**
+     * Consumes line whitespace and returns the last comment, if any.
+     */
+     consumeWhitespaceLine(): Token | undefined {
+        const tokens = this.consumeAll(WhitespaceLine);
+        return getLastComment(tokens);
     }
-}
 
-/**
- * Grammar:
- * 
- *     node           = [whitespace-all] [tag-list] (named-node / anonymous-node)
- *     named-node     = label [":" [whitespace-line] [NEWLINE] [whitespace-line] (
- *                        explicit-list / implicit-list
- *                      )]
- *     anonymous-node = explicit-list
- * 
- * This function parses an entire `node`.
- */
-export function _parseNode(ctx: ParseContext): Node | undefined {
-    ctx.debug("parseNode");
+    /**
+     * Consumes all whitespace and returns the last comment, if any.
+     */
+    consumeWhitespaceAll(): Token | undefined {
+        const tokens = this.consumeAll(WhitespaceAll);
+        return getLastComment(tokens);
+    }
 
-    const startOffset = ctx.offset;
+    /**
+     * Grammar:
+     * 
+     *     whitespace-node = whitespace-line [NEWLINE] [whitespace-line]
+     * 
+     * Returns any comment nodes that were encountered.
+     */
+    consumeWhitespaceNode(): Token | undefined {
+        const tokens: Token[] = [];
+        tokens.push(...this.consumeAll(WhitespaceLine));
+        this.consume(TokenKind.Newline);
+        tokens.push(...this.consumeAll(WhitespaceLine));
+        return getLastComment(tokens);
+    }
 
-    const node = makeNode(NodeKind.Main, "", "", ctx.offset);
+    /**
+     * Grammar:
+     * 
+     *     node           = [tag-list [whitespace-all]] (named-node / anonymous-node)
+     *     named-node     = label [":" [whitespace-node] (explicit-list / implicit-list)]
+     *     anonymous-node = explicit-list
+     * 
+     * This function parses an entire `node`.
+     */
+    parseNode(preComment: Token | undefined): Node | undefined {
+        this.debug("parseNode");
 
-    const preamble = ctx.consumeAll(TokenGroup.Irregular);
-    // TODO: Grab comments and assemble the "pre-comment" stuff
+        const startOffset = this.offset;
+        const node = new Node(NodeKind.Main, "", "", this.offset);
 
-    node.tags = _parseTagList(ctx);
-    ctx.debug(`got ${node.tags.length} tags`);
+        node.tags = this.parseTagList(preComment);
+        this.debug(`got ${node.tags.length} tags`);
 
-    // Check if we should break into the case where it's just an explicit-list
-    const explicitOpener = ctx.check(TokenKind.Reserved, t => "([{".includes(t.string));
-    if (explicitOpener) {
-        // Anonymous node (no string, just children)
-        ctx.debug("node is anonymous");
-        const [children, flags] = _parseExplicitList(ctx);
-        node.children = children!;
-        node.flags |= flags;
-    } else {
-        // Named node
-        const label = ctx.consume(TokenGroup.Label);
-        if (label) {
-            node.string = label.string;
-            ctx.debug(`node is named: ${node.string}`);
-            
-            const colon = ctx.consume(TokenKind.Reserved, t => t.string === ":");
-            if (colon) {
-                // Node has children
+        const commentToken = this.consumeWhitespaceAll() ?? preComment;
+        node.comment = commentToken?.string ?? "";
 
-                // Optional whitespace / single newline before any children begin
-                ctx.consumeAll(TokenKind.Whitespace);
-                ctx.consume(TokenKind.Newline);
-
-                const opener = ctx.check(TokenKind.Reserved, t => "([{".includes(t.string));
-                if (opener) {
-                    const [children, flags] = _parseExplicitList(ctx);
-                    node.children = children!;
-                    node.flags |= flags;
-                } else {
-                    node.children = _parseImplicitList(ctx);
-                }
-            }
+        const anonymous = this.check(TokenKind.Reserved, t => "([{".includes(t.string));
+        if (anonymous) {
+            this.debug("node is anonymous");
+            const [children, flags] = this.parseExplicitList();
+            node.children = children!;
+            node.flags |= flags;
         } else {
-            ctx.error(`expected a valid node label, but got "${sanitize(ctx.check()?.string ?? "end of file")}" instead`);
-            return undefined;
-        }
-    }
+            const label = this.consume(Label);
+            if (label) {
+                node.string = label.string;
+                this.debug(`node is named: ${node.string}`);
+                
+                const colon = this.consume(TokenKind.Reserved, t => t.string === ":");
+                if (colon) {
+                    // Node has children
+                    const comment = this.consumeWhitespaceNode();
 
-    // TODO: post-comment stuff?
-
-    const endOffset = ctx.offset;
-    node.rawString = ctx.source.slice(startOffset, endOffset);
-
-    return node;
-}
-
-/**
- * Grammar:
- * 
- *     tag-list = "@" label [explicit-list] [whitespace-all tag-list]
- * 
- * After parsing, this function verifies that the list of children used parentheses (the only valid
- * delimiter for tag children).
- */
-export function _parseTagList(ctx: ParseContext): Node[] {
-    ctx.debug("parseTagList");
-
-    const result: Node[] = [];
-
-    for (const _ of forever()) {
-        const at = ctx.consume(TokenKind.Reserved, t => t.string === "@");
-        if (!at) {
-            break;
+                    const opener = this.check(TokenKind.Reserved, t => "([{".includes(t.string));
+                    if (opener) {
+                        const [children, flags] = this.parseExplicitList();
+                        node.children = children!;
+                        node.flags |= flags;
+                    } else {
+                        node.children = this.parseImplicitList(comment);
+                    }
+                }
+            } else {
+                this.error(`expected a valid node label, but got "${sanitize(this.check()?.string ?? "end of file")}" instead`);
+                return undefined;
+            }
         }
 
-        const label = ctx.consume(TokenGroup.Label);
-        if (!label) {
-            ctx.error(`"${sanitize(ctx.last?.rawString ?? "<undefined>")}" is not a proper tag label`);
-            break;
+        const endOffset = this.offset;
+        node.rawString = this.source.slice(startOffset, endOffset);
+
+        return node;
+    }
+
+    /**
+     * Grammar:
+     * 
+     *     tag-list = "@" label [explicit-list] [whitespace-all] [tag-list]
+     * 
+     * After parsing, this function verifies that the list of children used parentheses (the only
+     * valid delimiter for tag children).
+     */
+    parseTagList(preComment: Token | undefined): Node[] {
+        this.debug("parseTagList");
+
+        const result: Node[] = [];
+
+        let commentToken = preComment;
+        for (const _ of forever()) {
+            const at = this.consume(TokenKind.Reserved, t => t.string === "@");
+            if (!at) {
+                break;
+            }
+
+            const label = this.consume(Label);
+            if (!label) {
+                this.error(`"${sanitize(this.last?.rawString ?? "<undefined>")}" is not a proper tag label`);
+                break;
+            }
+
+            this.debug(`tag is named: ${label.string}`);
+            
+            const tagNode = new Node(NodeKind.Tag, label.string, label.rawString, this.offset);
+            const tagChildrenOffset = this.offset;
+            const [tagChildren, tagFlags] = this.parseExplicitList();
+            tagNode.flags |= tagFlags;
+            tagNode.comment = commentToken?.string ?? "";
+            
+            const childrenAreParenthesized = tagNode.flags&NodeFlags.HasParenLeft && tagNode.flags&NodeFlags.HasParenRight;
+            if (tagChildren !== undefined && !childrenAreParenthesized) {
+                this.error("tag children can only be delimited using parentheses", tagChildrenOffset);
+            }
+            tagNode.children = tagChildren ?? [];
+
+            result.push(tagNode);
+
+            commentToken = this.consumeWhitespaceAll();
         }
 
-        ctx.debug(`tag is named: ${label.string}`);
-
-        const tagNode = makeNode(NodeKind.Tag, label.string, label.rawString, ctx.offset);
-        const tagChildrenOffset = ctx.offset;
-        const [tagChildren, tagFlags] = _parseExplicitList(ctx);
-        tagNode.flags |= tagFlags;
-        
-        const childrenAreParenthesized = tagNode.flags&NodeFlags.HasParenLeft && tagNode.flags&NodeFlags.HasParenRight;
-        if (tagChildren !== undefined && !childrenAreParenthesized) {
-            ctx.error("tag children can only be delimited using parentheses", tagChildrenOffset);
-        }
-        tagNode.children = tagChildren ?? [];
-
-        result.push(tagNode);
-
-        ctx.consumeAll(TokenGroup.Whitespace);
-    }
-
-    return result;
-}
-
-/**
- * Grammar:
- * 
- *     explicit-list = ("(" / "[" / "{") explicit-children (")" / "]" / "}")
- * 
- * Note that, while the grammar allows for any combination of opening and closing delimiters, some
- * combinations are forbidden and will be validated separately.
- */
-function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] {
-    ctx.debug("parseExplicitList");
-
-    let parentFlags: NodeFlags = 0;
-
-    const openerOffset = ctx.offset;
-    const opener = ctx.consume(TokenKind.Reserved, t => "([{".includes(t.string));
-    if (!opener) {
-        ctx.debug("no list")
-        return [undefined, 0];
-    }
-    switch (opener.string) {
-        case "(": parentFlags |= NodeFlags.HasParenLeft; break;
-        case "[": parentFlags |= NodeFlags.HasBracketLeft; break;
-        case "{": parentFlags |= NodeFlags.HasBraceLeft; break;
-    }
-    
-    const children = _parseExplicitChildren(ctx);
-
-    const closer = ctx.consume(TokenKind.Reserved, t => ")]}".includes(t.string));
-
-    const isBraced = opener.string === "{" && closer?.string === "}";
-    const isBracketed = opener && closer && (
-        "([".includes(opener.string)
-        && ")]".includes(closer.string)
-    );
-    if (!(isBraced || isBracketed)) {
-        ctx.error(`"${opener.string}" and "${closer?.string}" cannot be used together`, openerOffset);
-    }
-
-    switch (closer?.string) {
-        case ")": parentFlags |= NodeFlags.HasParenRight; break;
-        case "]": parentFlags |= NodeFlags.HasBracketRight; break;
-        case "}": parentFlags |= NodeFlags.HasBraceRight; break;
-    }
-
-    return [children, parentFlags];
-}
-
-/**
- * Grammar:
- * 
- *     explicit-children = [whitespace-all] [
- *                           node
- *                           [whitespace-all] [SEPARATOR] [whitespace-all] 
- *                           [explicit-children]
- *                         ]
- * 
- * Since this part of the grammar only occurs within `explicit-list` and `file`, this function will
- * exit when it sees either a closing delimiter or the end of the token stream. It will not consume
- * the final delimiter, if any, so that `_parseExplicitList` can consume it.
- */
-function _parseExplicitChildren(ctx: ParseContext): Node[] {
-    const result: Node[] = [];
-
-    // Early out if empty
-    ctx.consumeAll(TokenGroup.Whitespace);
-    const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
-    if (endDelimiter || ctx.done()) {
         return result;
     }
 
-    let nextNodeFlags: NodeFlags = 0;
-    for (const _ of forever()) {
-        ctx.consumeAll(TokenGroup.Whitespace);
+    /**
+     * Grammar:
+     * 
+     *     explicit-list = ("(" / "[" / "{") explicit-children (")" / "]" / "}")
+     * 
+     * Note that, while the grammar allows for any combination of opening and closing delimiters,
+     * some combinations are forbidden and will be validated separately.
+     */
+    parseExplicitList(): [Node[] | undefined, NodeFlags] {
+        this.debug("parseExplicitList");
 
-        const node = _parseNode(ctx);
-        if (!node) {
-            break;
+        let parentFlags: NodeFlags = 0;
+
+        const openerOffset = this.offset;
+        const opener = this.consume(TokenKind.Reserved, t => "([{".includes(t.string));
+        if (!opener) {
+            this.debug("no list")
+            return [undefined, 0];
         }
-        node.flags |= nextNodeFlags;
-        nextNodeFlags = 0;
-        result.push(node); // this is JS, so we can continue to modify node after pushing it
+        switch (opener.string) {
+            case "(": parentFlags |= NodeFlags.HasParenLeft; break;
+            case "[": parentFlags |= NodeFlags.HasBracketLeft; break;
+            case "{": parentFlags |= NodeFlags.HasBraceLeft; break;
+        }
+        
+        const children = this.parseExplicitChildren();
 
-        ctx.consumeAll(TokenGroup.Irregular);
+        const closer = this.consume(TokenKind.Reserved, t => ")]}".includes(t.string));
+        if (!closer) {
+            this.error("List was not terminated", openerOffset);
+            return [undefined, 0];
+        }
 
-        const separator = ctx.consume(TokenKind.Reserved, t => ",;".includes(t.string));
-        if (separator) {
-            switch (separator.string) {
-                case ",": {
-                    node.flags |= NodeFlags.IsBeforeComma;
-                    nextNodeFlags |= NodeFlags.IsAfterComma;
-                } break;
-                case ";": {
-                    node.flags |= NodeFlags.IsBeforeSemicolon;
-                    nextNodeFlags |= NodeFlags.IsAfterSemicolon;
-                } break;
-                // default: {
-                //     ctx.error(`unexpected character ${separator.string} in a list of nodes`);
-                // } break;
+        const isBraced = opener.string === "{" && closer.string === "}";
+        const isBracketed = (
+            "([".includes(opener.string)
+            && ")]".includes(closer.string)
+        );
+        if (!(isBraced || isBracketed)) {
+            this.error(`"${opener.string}" and "${closer.string}" cannot be used together`, openerOffset);
+        }
+
+        switch (closer.string) {
+            case ")": parentFlags |= NodeFlags.HasParenRight; break;
+            case "]": parentFlags |= NodeFlags.HasBracketRight; break;
+            case "}": parentFlags |= NodeFlags.HasBraceRight; break;
+        }
+
+        return [children, parentFlags];
+    }
+
+    /**
+     * Grammar:
+     * 
+     *     explicit-children = [whitespace-all] [
+     *                           node [whitespace-all] [SEPARATOR]
+     *                           explicit-children
+     *                         ]
+     * 
+     * Since this part of the grammar only occurs within `explicit-list` and `file`, this function
+     * will exit when it sees either a closing delimiter or the end of the token stream. It will
+     * not consume the final delimiter, if any, so that `_parseExplicitList` can consume it.
+     */
+    parseExplicitChildren(): Node[] {
+        const result: Node[] = [];
+
+        // Early out if empty
+        let commentToken = this.consumeWhitespaceAll();
+        const endDelimiter = this.check(TokenKind.Reserved, t => ")]}".includes(t.string));
+        if (endDelimiter || this.done()) {
+            return result;
+        }
+
+        let nextNodeFlags: NodeFlags = 0;
+        for (const _ of forever()) {
+            const node = this.parseNode(commentToken);
+            if (!node) {
+                break;
+            }
+            node.flags |= nextNodeFlags;
+            nextNodeFlags = 0;
+            result.push(node); // this is JS, so we can continue to modify node after pushing it
+
+            this.consumeWhitespaceAll();
+            const separator = this.consume(TokenKind.Reserved, t => ",;".includes(t.string));
+            if (separator) {
+                switch (separator.string) {
+                    case ",": {
+                        node.flags |= NodeFlags.IsBeforeComma;
+                        nextNodeFlags |= NodeFlags.IsAfterComma;
+                    } break;
+                    case ";": {
+                        node.flags |= NodeFlags.IsBeforeSemicolon;
+                        nextNodeFlags |= NodeFlags.IsAfterSemicolon;
+                    } break;
+                }
+            }
+
+            // Done with that node, now either start the next or bail
+            commentToken = this.consumeWhitespaceAll();
+            const endDelimiter = this.check(TokenKind.Reserved, t => ")]}".includes(t.string));
+            if (endDelimiter || this.done()) {
+                break;
             }
         }
 
-        // TODO: This might eat comments that should be "before" a subsequent node.
-        ctx.consumeAll(TokenGroup.Irregular);
-
-        // Check if we need to bail
-        const endDelimiter = ctx.check(TokenKind.Reserved, t => ")]}".includes(t.string));
-        if (endDelimiter || ctx.done()) {
-            break;
-        }
+        return result;
     }
 
-    return result;
-}
+    /**
+     * Grammar:
+     * 
+     *     implicit-list     = implicit-children (SEPARATOR / NEWLINE)
+     *     implicit-children = node [whitespace-line] [implicit-children]
+     * 
+     * We parse the two together in a single function for simplicity.
+     */
+    parseImplicitList(preComment: Token | undefined): Node[] {
+        this.debug("parseImplicitList");
 
-/**
- * Grammar:
- * 
- *     implicit-list     = implicit-children (SEPARATOR / NEWLINE)
- *     implicit-children = [whitespace-line] node [whitespace-line implicit-children]
- * 
- * We parse the two together in a single function for simplicity.
- */
-function _parseImplicitList(ctx: ParseContext): Node[] {
-    ctx.debug("parseImplicitList");
+        const result: Node[] = [];
+        let commentToken = preComment;
+        for (const _ of forever()) {
+            const node = this.parseNode(commentToken);
+            if (!node) {
+                this.error("expected a node");
+                break;
+            }
+            result.push(node);
 
-    const result: Node[] = [];
-    for (const _ of forever()) {
-        ctx.consumeAll(TokenKind.Whitespace);
-
-        const node = _parseNode(ctx);
-        if (!node) {
-            ctx.error("expected a node");
-            break;
-        }
-        result.push(node);
-
-        const nextIsSeparator = ctx.check(TokenKind.Reserved, t => ",;".includes(t.string));
-        const nextIsNewline = ctx.check(TokenKind.Newline);
-        if (nextIsSeparator || nextIsNewline) {
-            ctx.consume(); // This is really part of processing `implicit-list`
-            break;
+            commentToken = this.consumeWhitespaceLine();
+            const nextIsSeparator = this.check(TokenKind.Reserved, t => ",;".includes(t.string));
+            const nextIsNewline = this.check(TokenKind.Newline);
+            if (nextIsSeparator || nextIsNewline) {
+                this.consume();
+                break;
+            }
         }
 
-        const whitespaceBeforeNext = ctx.consumeAll(TokenKind.Whitespace);
-        if (whitespaceBeforeNext.length === 0) {
-            ctx.error("whitespace is required before the next node in the list");
-            break;
-        }
+        return result;
     }
-
-    return result;
 }
 
 export enum GenerateFlags {
