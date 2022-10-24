@@ -53,7 +53,8 @@
  *   SYMBOL:        Runs of the following symbols: ~ ! $ % ^ & * - = + < . > / ? |. These symbols
  *                  are not used by the Metadesk language and are therefore available for users.
  *                  Examples: "+", "->", "^.^", "---".
- *   SEPARATOR:     "," or ";". Used to separate children within explicitly-delimited sets.
+ *   SEPARATOR:     "," or ";". Used to separate children within explicitly-delimited sets or end
+ *                  implicitly-delimited sets.
  * 
  * Now, the grammar, in ABNF notation:
  * 
@@ -594,12 +595,13 @@ class ParseContext {
 /**
  * Grammar:
  * 
- *     [ whitespace-all ] -- TODO: but also comments?? Maybe comments should be part of the "whitespace" group.
- *     [ tag-list ]
- *     (
- *         label [ ':' [ whitespace-line | newline ] ( [ whitespace-all ] explicit-list | implicit-list ) ]
- *         | explicit-list
- *     )
+ *     node           = [whitespace-all] [tag-list] (named-node / anonymous-node)
+ *     named-node     = label [":" [whitespace-line] [NEWLINE] [whitespace-line] (
+ *                        explicit-list / implicit-list
+ *                      )]
+ *     anonymous-node = explicit-list
+ * 
+ * This function parses an entire `node`.
  */
 export function _parseNode(ctx: ParseContext): Node | undefined {
     ctx.debug("parseNode");
@@ -663,11 +665,10 @@ export function _parseNode(ctx: ParseContext): Node | undefined {
 /**
  * Grammar:
  * 
- *     tag-list = '@' label [ '(' [ scoped-children-list ] ')' ] whitespace-all [ tag-list ]
+ *     tag-list = "@" label [explicit-list] [whitespace-all tag-list]
  * 
- * For ease of parsing, we actually hand off to `_parseScopedChildren`, rather
- * than `_parseScopedChildrenList`, and then verify after the fact that you
- * used parentheses (the only valid delimiter for tag children).
+ * After parsing, this function verifies that the list of children used parentheses (the only valid
+ * delimiter for tag children).
  */
 export function _parseTagList(ctx: ParseContext): Node[] {
     ctx.debug("parseTagList");
@@ -710,7 +711,7 @@ export function _parseTagList(ctx: ParseContext): Node[] {
 /**
  * Grammar:
  * 
- *     ( '(' | '[' | '{' ) [ explicit-children ] ( ')' | ']' | '}' )
+ *     explicit-list = ("(" / "[" / "{") explicit-children (")" / "]" / "}")
  * 
  * Note that, while the grammar allows for any combination of opening and closing delimiters, some
  * combinations are forbidden and will be validated separately.
@@ -757,9 +758,11 @@ function _parseExplicitList(ctx: ParseContext): [Node[] | undefined, NodeFlags] 
 /**
  * Grammar:
  * 
- *     [ whitespace-all ] [
- *         node [ whitespace-all ] [ ',' | ';' | whitespace-all ] [ whitespace-all ] [ explicit-children ]
- *     ]
+ *     explicit-children = [whitespace-all] [
+ *                           node
+ *                           [whitespace-all] [SEPARATOR] [whitespace-all] 
+ *                           [explicit-children]
+ *                         ]
  * 
  * Since this part of the grammar only occurs within `explicit-list` and `file`, this function will
  * exit when it sees either a closing delimiter or the end of the token stream. It will not consume
@@ -822,11 +825,8 @@ function _parseExplicitChildren(ctx: ParseContext): Node[] {
 /**
  * Grammar:
  * 
- *     implicit-children ( ',' | ';' | newline )
- * 
- * Additionally, here is the grammar for `implicit-children`:
- * 
- *     [ whitespace-line ] node [ whitespace-line implicit-children ]
+ *     implicit-list     = implicit-children (SEPARATOR / NEWLINE)
+ *     implicit-children = [whitespace-line] node [whitespace-line implicit-children]
  * 
  * We parse the two together in a single function for simplicity.
  */
