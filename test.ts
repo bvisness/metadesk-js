@@ -42,6 +42,20 @@ io: {
 //   )
 // `
 
+str = `
+// The general principle of comments is that you should get exactly the same parse results if you
+// replace them all with spaces before parsing. Despite this, we actually want to track the
+// comments before/after nodes for user convenience. So we need them to appear in the grammar in a
+// way that is reasonably easy to work with.
+foo: // shouldn't matter
+foo1 /* should be fine */ foo2 foo3 // zat is how it to be
+notfoo
+
+bar:
+bar1 bar2 bar3
+notbar
+`
+
 let tokenStr = str;
 let token;
 while (token = getToken(tokenStr)) {

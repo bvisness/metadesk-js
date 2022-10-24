@@ -17,10 +17,77 @@
  * - Consume all whitespace before handing off to another function. Whitespace is important; only
  *   consume it when you know you can.
  * Remove TokenGroup in favor of simple constants
- * Elide whitespace tokens that immediately precede newline tokens
  * Allow comments in nearly any whitespace, and make aggregation of comments easy.
  * - Weird nuance: comments could sometimes do "double duty", either "after" a node or "before" the
  *   next. How to handle this?
+ * Spec out Unicode handling.
+ * 
+ * =========
+ *  Grammar
+ * =========
+ * 
+ * This is a complete grammar for Metadesk, organized in such a way that it can reasonably be
+ * followed to make a recursive descent parser. It does not attempt to validate everything about
+ * the language; some things are best validated after parsing.
+ * 
+ * First, definitions of terminals / tokens:
+ * 
+ *   LINE-COMMENT:  Line comments start with a "//" and continue up to (but do not include) a CR
+ *                  or LF.
+ *   BLOCK-COMMENT: Block comments start with a "/*" and continue until a "*​/". Block comments can
+ *                  be nested, so all pairs of "/*" and "*​/" must be balanced. If JavaScript did
+ *                  this, then I wouldn't have to use zero-width spaces in this comment every time
+ *                  I write "*​/"!
+ *   SPACE:         " ", "\r", "\t", "\f", or "\v". Equivalent to C's isspace, excluding newlines.
+ *   NEWLINE:       "\n". This grammar does not recognize CRLF as a newline, but will handle CRLF
+ *                  just fine regardless.
+ *   STRING:        Strings can be delimited using single quotes, double quotes, or backticks. A
+ *                  string can use a single delimiter (e.g. "foo", 'bar', or `baz`), in which case
+ *                  newlines are not allowed, or triple delimiters (e.g. """foo""", '''bar''', or
+ *                  ```baz```), in which case newlines are permitted. In either case, characters
+ *                  can be escaped with a backslash as in C.
+ *   IDENTIFIER:    Identifiers follow C identifier rules, satisfying the regex
+ *                  "[a-zA-Z_][a-zA-Z0-9_]*".
+ *   NUMERIC:       Numerics follow the JSON grammar for numbers, satisfying the regex
+ *                  "-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?".
+ *   SYMBOL:        Runs of the following symbols: ~ ! $ % ^ & * - = + < . > / ? |. These symbols
+ *                  are not used by the Metadesk language and are therefore available for users.
+ *                  Examples: "+", "->", "^.^", "---".
+ *   SEPARATOR:     "," or ";". Used to separate children within explicitly-delimited sets.
+ * 
+ * Now, the grammar, in ABNF notation:
+ * 
+ *   comment            = LINE-COMMENT / BLOCK-COMMENT
+ *   whitespace-line    = 1*(SPACE / comment)
+ *   whitespace-all     = 1*(SPACE / NEWLINE / comment)
+ * 
+ *   label              = IDENTIFIER / NUMERIC / STRING / SYMBOL
+ * 
+ *   node               = [whitespace-all] [tag-list] (named-node / anonymous-node)
+ *   named-node         = label [":" [whitespace-line] [NEWLINE] [whitespace-line] (
+ *                          explicit-list / implicit-list
+ *                        )]
+ *   anonymous-node     = explicit-list
+ * 
+ *   tag-list           = "@" label [explicit-list] [whitespace-all tag-list]
+ * 
+ *   explicit-list      = ("(" / "[" / "{") explicit-children (")" / "]" / "}")
+ *   explicit-children  = [whitespace-all] [
+ *                          node
+ *                          [whitespace-all] [SEPARATOR] [whitespace-all] 
+ *                          [explicit-children]
+ *                        ]
+ *   implicit-list      = implicit-children (SEPARATOR / NEWLINE)
+ *   implicit-children  = [whitespace-line] node [whitespace-line implicit-children]
+ * 
+ *   root               = explicit-children ; The file itself is parsed as an explicit list of
+ *                                            children, but delimited by the end of the file.
+ * 
+ * Some general notes about this grammar:
+ * 
+ *   - Comments are included in this grammar because Metadesk implementations are encouraged to attach pre/post comments to nodes. This requires implementations to keep comments around throughout the parse.
+ *   - Yes, there's a lot of whitespace in here. Parts of metadesk are whitespace-sensitive, so you can't just throw whitespace away. However, whitespace has been carefully placed in the grammar where it makes sense to handle it during parsing. Even with whitespace, the grammar is unambiguous and can be parsed in a single pass without backtracking.
+ * 
  */
 
 const DEBUG = false;
@@ -135,16 +202,28 @@ enum TokenKind {
     BrokenComment       = 1 << 8,
     BrokenStringLiteral = 1 << 9,
     BadCharacter        = 1 << 10,
+}
 
+const 
+
+enum TokenGroup {
+    Whitespace  = TokenKind.Whitespace | TokenKind.Newline,
+    Irregular   = TokenKind.Comment | TokenKind.Whitespace | TokenKind.Newline, // TODO: I added newline. Is this a problem?
+    Regular     = ~Irregular,
+    Label       = TokenKind.Identifier
+                    | TokenKind.Numeric
+                    | TokenKind.StringLiteral
+                    | TokenKind.Symbol,
+    Error       = TokenKind.BrokenComment
+                    | TokenKind.BrokenStringLiteral
+                    | TokenKind.BadCharacter,
+    
     All = ~0,
 }
 
 export function tokenKindName(kind: TokenKind) {
     if (kind === TokenKind.Invalid) {
         return "Invalid";
-    }
-    if (kind === TokenKind.All) {
-        return "All";
     }
     
     const names: string[] = [];
@@ -183,22 +262,6 @@ export function tokenKindName(kind: TokenKind) {
     }
 
     return names.join(', ');
-}
-
-enum TokenGroup {
-    Comment     = TokenKind.Comment,
-    Whitespace  = TokenKind.Whitespace | TokenKind.Newline,
-    Irregular   = TokenKind.Comment | TokenKind.Whitespace | TokenKind.Newline, // TODO: I added newline. Is this a problem?
-    Regular     = ~Irregular,
-    Label       = TokenKind.Identifier
-                    | TokenKind.Numeric
-                    | TokenKind.StringLiteral
-                    | TokenKind.Symbol,
-    Error       = TokenKind.BrokenComment
-                    | TokenKind.BrokenStringLiteral
-                    | TokenKind.BadCharacter,
-    
-    All = ~0,
 }
 
 enum NodeFlags {
@@ -453,7 +516,7 @@ class ParseContext {
     }
 
     check(
-        kind: TokenKind | TokenGroup = TokenKind.All,
+        kind: TokenKind | TokenGroup = TokenGroup.All,
         cond: (token: Token) => boolean = () => true,
     ): Token | undefined {
         const token = getToken(this.#remaining);
@@ -465,7 +528,7 @@ class ParseContext {
     }
 
     consume(
-        kind: TokenKind | TokenGroup = TokenKind.All,
+        kind: TokenKind | TokenGroup = TokenGroup.All,
         cond: (token: Token) => boolean = () => true,
     ): Token | undefined {
         const token = this.check(kind, cond);
@@ -477,7 +540,7 @@ class ParseContext {
     }
 
     consumeAll(
-        kind: TokenKind | TokenGroup = TokenKind.All,
+        kind: TokenKind | TokenGroup = TokenGroup.All,
         cond: (token: Token) => boolean = () => true,
     ): Token[] {
         const tokens: Token[] = [];
