@@ -1,2 +1,6 @@
-metadesk.js
-test.js
+node_modules
+dist
+
+# ignore intermediate JS files (bun in particular likes to do this)
+src/**/*.js
+test/**/*.js

@@ -1,4 +1,4 @@
-import { GenerateFlags, debugDumpFromNode, getToken, parse } from "./metadesk";
+import { GenerateFlags, debugDumpFromNode, getToken, parse } from "../src/metadesk";
 
 let str = `
 @include("<frc/Joystick.h>")

@@ -1,0 +1,30 @@
+{
+    "name": "metadesk",
+    "version": "0.0.1",
+    "description": "A pure JS implementation of the Metadesk language by Dion Systems",
+    "main": "metadesk.js",
+    "scripts": {
+        "build": "tsc",
+        "watch": "tsc --watch --noEmit",
+        "lint": "eslint .",
+        "test": "tsc --project test && node test/dist/test/test.js",
+
+        "test-bun": "bun run test/test.ts"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/bvisness/metadesk-js.git"
+    },
+    "author": "Ben Visness",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/bvisness/metadesk-js/issues"
+    },
+    "homepage": "https://github.com/bvisness/metadesk-js#readme",
+    "devDependencies": {
+        "@typescript-eslint/eslint-plugin": "^5.41.0",
+        "@typescript-eslint/parser": "^5.41.0",
+        "eslint": "^8.26.0",
+        "typescript": "^4.8.4"
+    }
+}

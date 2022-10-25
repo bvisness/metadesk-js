@@ -16,6 +16,7 @@
  * Spec out Unicode handling.
  * ESLint, bundling setup, node support for scripts
  * Real tests
+ * Line wrap everything
  * 
  * =========
  *  Grammar
@@ -386,6 +387,8 @@ export function getToken(string: string): Token | undefined {
                     }
                 }
             }
+
+            // const foo: number = "wow";
 
             flags |= NodeFlags.StringLiteral;
             switch (delim) {
