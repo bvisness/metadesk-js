@@ -835,12 +835,19 @@ export function debugDumpFromNode(
 ): string {
     let out = "";
 
-    // TODO: previous comment
-
     function printIndent() {
         for (let i = 0; i < indent; i++) {
             out += indentString;
         }
+    }
+
+    if (flags & GenerateFlags.Comments && node.comment) {
+        printIndent();
+        out += "/*\n";
+        printIndent();
+        out += `${node.comment}\n`;
+        printIndent();
+        out += "*/\n";
     }
 
     // tags
@@ -906,14 +913,41 @@ export function debugDumpFromNode(
         out += "}";
     }
 
-    // next comment
-    // TODO
-
     return out;
 }
 
 function stringListFromNodeFlags(flags: NodeFlags): string[] {
-    return ["flag", "lol"]; // TODO
+    const validFlags = [
+        "HasParenLeft",
+        "HasParenRight",
+        "HasBracketLeft",
+        "HasBracketRight",
+        "HasBraceLeft",
+        "HasBraceRight",
+    
+        "IsBeforeSemicolon",
+        "IsAfterSemicolon",
+        "IsBeforeComma",
+        "IsAfterComma",
+
+        "StringSingleQuote",
+        "StringDoubleQuote",
+        "StringTick",
+        "StringTriplet",
+        
+        "Numeric",
+        "Identifier",
+        "StringLiteral",
+        "Symbol",
+    ] as const;
+
+    const names: string[] = [];
+    for (const flagName of validFlags) {
+        if (flags & NodeFlags[flagName]) {
+            names.push(flagName);
+        }
+    }
+    return names;
 }
 
 function* forever() {
