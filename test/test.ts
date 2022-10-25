@@ -70,7 +70,7 @@ while (token = getToken(tokenStr)) {
     tokenStr = token.remaining;
 }
 
-console.log('------------------------');
+console.log("------------------------");
 
 const parsed = parse(str);
 console.log(debugDumpFromNode(parsed.node!, 0, "  ", GenerateFlags.Tree))

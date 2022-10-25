@@ -48,7 +48,7 @@
  *                  digits, ".", and "_". Also, the characters "-" and "+" are allowed as long as
  *                  they follow a lowercase or uppercase E.
  *                  Examples: 1, 3.14, 0xDEADBEEF.
- *                  Regex: "-?[0-9]([eE][\+-]|[a-zA-Z0-9\._])*"
+ *                  Regex: "-?[0-9]([eE][+-]|[a-zA-Z0-9._])*"
  *   SYMBOL:        Runs of the following symbols: ~ ! $ % ^ & * - = + < . > / ? |. These symbols
  *                  are not used by the Metadesk language and are therefore available for users.
  *                  Examples: "+", "->", "^.^", "---".
@@ -404,7 +404,7 @@ export function getToken(string: string): Token | undefined {
         // Identifiers, numbers, symbols
         default: {
             const identifierMatch = string.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
-            const numericMatch = string.match(/^-?[0-9]([eE][\+-]|[a-zA-Z0-9\._])*/);
+            const numericMatch = string.match(/^-?[0-9]([eE][+-]|[a-zA-Z0-9._])*/);
 
             if (identifierMatch) {
                 flags |= NodeFlags.Identifier;
@@ -586,7 +586,7 @@ class ParseContext {
         if (anonymous) {
             this.debug("node is anonymous");
             const [children, flags] = this.parseExplicitList();
-            node.children = children!;
+            node.children = children ?? [];
             node.flags |= flags;
         } else {
             const label = this.consume(Label);
@@ -602,7 +602,7 @@ class ParseContext {
                     const opener = this.check(TokenKind.Reserved, t => "([{".includes(t.string));
                     if (opener) {
                         const [children, flags] = this.parseExplicitList();
-                        node.children = children!;
+                        node.children = children ?? [];
                         node.flags |= flags;
                     } else {
                         node.children = this.parseImplicitList(comment);
@@ -834,7 +834,7 @@ export function debugDumpFromNode(
     indentString: string,
     flags: GenerateFlags,
 ): string {
-    let out = '';
+    let out = "";
 
     // TODO: previous comment
 
@@ -856,7 +856,7 @@ export function debugDumpFromNode(
                     if (i > 0) {
                         out += ",\n";
                     }
-                    let childIndent = i === 0 ? 0 : tagArgIndent;
+                    const childIndent = i === 0 ? 0 : tagArgIndent;
                     out += debugDumpFromNode(child, childIndent, " ", flags);
                 }
                 out += ")\n";
@@ -922,4 +922,4 @@ function* forever() {
         yield true;
     }
     throw new Error("a loop ran on too long");
-};
+}
