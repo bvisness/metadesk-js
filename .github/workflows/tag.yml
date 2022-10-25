@@ -1,0 +1,31 @@
+name: Tagged version
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  tagged-release:
+    name: Make draft release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build-all
+      - run: npm test
+
+      - name: Create release
+        uses: marvinpinto/action-automatic-releases@v1.2.1
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          draft: true
+          prerelease: false # Pay attention when publishing the GitHub releases if doing a release candidate.
+          files: |
+            dist/*.js
+            dist/*.js.map
