@@ -2,7 +2,8 @@
     "name": "metadesk",
     "version": "0.0.1",
     "description": "A pure JS implementation of the Metadesk language by Dion Systems",
-    "main": "metadesk.js",
+    "main": "dist/metadesk.js",
+    "files": ["dist"],
     "scripts": {
         "build": "tsc",
         "watch": "tsc --watch --noEmit",
