@@ -2,12 +2,17 @@
     "name": "metadesk",
     "version": "0.0.2-rc.0",
     "description": "A pure JS implementation of the Metadesk language by Dion Systems",
-    "main": "dist/metadesk.js",
+    "main": "dist/node/metadesk.js",
+    "types": "dist/node/metadesk.d.ts",
     "files": [
         "dist"
     ],
     "scripts": {
-        "build": "tsc",
+        "build-all": "npm run build-node && npm run build-browser && npm run build-esm",
+        "build-node": "tsc",
+        "build-browser": "esbuild src/metadesk.ts --bundle --minify --sourcemap --target=chrome58,firefox57,safari11,edge18 --outfile=dist/metadesk.browser.min.js",
+        "build-esm": "esbuild src/metadesk.ts --bundle --minify --sourcemap --format=esm --target=chrome58,firefox57,safari11,edge18 --outfile=dist/metadesk.esm.min.js",
+        "check": "tsc --noEmit",
         "watch": "tsc --watch --noEmit",
         "lint": "eslint .",
         "test": "tsc --project test && node test/dist/test/test.js",
@@ -27,6 +32,7 @@
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^5.41.0",
         "@typescript-eslint/parser": "^5.41.0",
+        "esbuild": "^0.15.12",
         "eslint": "^8.26.0",
         "typescript": "^4.8.4"
     }
