@@ -14,7 +14,6 @@
  * TODO:
  * 
  * Spec out Unicode handling.
- * ESLint, bundling setup, node support for scripts
  * Real tests
  * Line wrap everything
  * 
