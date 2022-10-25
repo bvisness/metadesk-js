@@ -1,6 +1,6 @@
 {
     "name": "metadesk",
-    "version": "0.0.2-rc.1",
+    "version": "0.0.2-rc.2",
     "description": "A pure JS implementation of the Metadesk language by Dion Systems",
     "main": "dist/node/metadesk.js",
     "types": "dist/node/metadesk.d.ts",
