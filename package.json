@@ -1,17 +1,17 @@
 {
     "name": "metadesk",
-    "version": "0.0.1",
+    "version": "0.0.2-rc.0",
     "description": "A pure JS implementation of the Metadesk language by Dion Systems",
     "main": "dist/metadesk.js",
-    "files": ["dist"],
+    "files": [
+        "dist"
+    ],
     "scripts": {
         "build": "tsc",
         "watch": "tsc --watch --noEmit",
         "lint": "eslint .",
         "test": "tsc --project test && node test/dist/test/test.js",
-
         "test-bun": "bun run test/test.ts",
-
         "preversion": "npm test"
     },
     "repository": {
