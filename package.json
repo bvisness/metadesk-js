@@ -10,7 +10,9 @@
         "lint": "eslint .",
         "test": "tsc --project test && node test/dist/test/test.js",
 
-        "test-bun": "bun run test/test.ts"
+        "test-bun": "bun run test/test.ts",
+
+        "preversion": "npm test"
     },
     "repository": {
         "type": "git",
