@@ -43,8 +43,11 @@
  *                  can be escaped with a backslash as in C.
  *   IDENTIFIER:    Identifiers follow C identifier rules, satisfying the regex
  *                  "[a-zA-Z_][a-zA-Z0-9_]*".
- *   NUMERIC:       Numerics follow the JSON grammar for numbers, satisfying the regex
- *                  "-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?".
+ *   NUMERIC:       Numerics start with a digit and then can include any combination of letters,
+ *                  digits, ".", and "_". Also, the characters "-" and "+" are allowed as long as
+ *                  they follow a lowercase or uppercase E.
+ *                  Examples: 1, 3.14, 0xDEADBEEF.
+ *                  Regex: "-?[0-9]([eE][\+-]|[a-zA-Z0-9\._])*"
  *   SYMBOL:        Runs of the following symbols: ~ ! $ % ^ & * - = + < . > / ? |. These symbols
  *                  are not used by the Metadesk language and are therefore available for users.
  *                  Examples: "+", "->", "^.^", "---".
@@ -258,7 +261,7 @@ export class Token {
     }
 }
 
-function getToken(string: string): Token | undefined {
+export function getToken(string: string): Token | undefined {
     if (string === "") {
         return undefined;
     }
@@ -398,7 +401,7 @@ function getToken(string: string): Token | undefined {
         // Identifiers, numbers, symbols
         default: {
             const identifierMatch = string.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
-            const numericMatch = string.match(/^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?/);
+            const numericMatch = string.match(/^-?[0-9]([eE][\+-]|[a-zA-Z0-9\._])*/);
 
             if (identifierMatch) {
                 flags |= NodeFlags.Identifier;
@@ -863,7 +866,7 @@ export function debugDumpFromNode(
     // node kind
     if (flags & GenerateFlags.NodeKind) {
         printIndent();
-        out += `// kind: "${node.kind}"\n`; // TODO: stringFromNodeKind
+        out += `// kind: "${NodeKind[node.kind]}"\n`;
     }
 
     // node flags

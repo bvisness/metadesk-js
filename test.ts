@@ -56,6 +56,13 @@ io: {
 // notbar
 // `
 
+str = `
+foo = 2 - 1pizza3
+bar = -2
+baz = - 2
+blemmo = 2-3
+`
+
 let tokenStr = str;
 let token;
 while (token = getToken(tokenStr)) {
