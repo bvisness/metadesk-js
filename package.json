@@ -30,6 +30,7 @@
     },
     "homepage": "https://github.com/bvisness/metadesk-js#readme",
     "devDependencies": {
+        "@types/node": "^18.11.7",
         "@typescript-eslint/eslint-plugin": "^5.41.0",
         "@typescript-eslint/parser": "^5.41.0",
         "esbuild": "^0.15.12",

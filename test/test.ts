@@ -1,4 +1,5 @@
 import { GenerateFlags, debugDumpFromNode, getToken, parse } from "../src/metadesk";
+import { run, test } from "./framework";
 
 let str = `
 @include("<frc/Joystick.h>")
@@ -77,3 +78,5 @@ console.log(debugDumpFromNode(parsed.node!, 0, "  ", GenerateFlags.All))
 for (const err of parsed.fancyErrors()) {
 	console.log(err);
 }
+
+run();
