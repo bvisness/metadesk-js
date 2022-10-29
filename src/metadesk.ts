@@ -125,19 +125,19 @@ export enum NodeKind {
 }
 
 export class Node {
-    kind: NodeKind
-    flags: NodeFlags
-    string: string
-    rawString: string
-    offset: number
-    comment: string
+    kind: NodeKind;
+    flags: NodeFlags;
+    string: string;
+    rawString: string;
+    offset: number;
+    comment: string;
 
-    next: Node | undefined
-    prev: Node | undefined
-    parent: Node | undefined
+    next: Node | undefined;
+    prev: Node | undefined;
+    parent: Node | undefined;
 
-    children: Node[]
-    tags: Node[]
+    children: Node[];
+    tags: Node[];
 
     constructor(kind: NodeKind, str: string, rawStr: string, offset: number) {
         this.kind = kind;
@@ -165,8 +165,8 @@ function sanitize(str: string): string {
 }
 
 export class ParseResult {
-    node: Node | undefined
-    #ctx: ParseContext
+    node: Node | undefined;
+    #ctx: ParseContext;
 
     constructor(node: Node | undefined, ctx: ParseContext) {
         this.node = node;
@@ -189,7 +189,7 @@ export class ParseResult {
  | ${before}${problem}${after}
  | ${pad}^
  |
-`
+`;
         });
     }
 }
@@ -238,11 +238,11 @@ export enum NodeFlags {
 }
 
 export class Token {
-    kind: TokenKind
+    kind: TokenKind;
     // TODO: flags?
-    string: string
-    rawString: string
-    remaining: string
+    string: string;
+    rawString: string;
+    remaining: string;
 
     constructor(kind: TokenKind, string: string, rawString: string, remaining: string) {
         this.kind = kind;
@@ -255,7 +255,7 @@ export class Token {
         let val = sanitize(this.rawString);
         const name = TokenKind[this.kind];
         if (/^ +$/.test(val)) {
-            val = `"${val}"`
+            val = `"${val}"`;
         }
         return `${val} (${name})`;
     }
@@ -450,8 +450,8 @@ function charIsReservedSymbol(c: string): boolean {
 }
 
 export interface Error {
-    message: string,
-    offset: number,
+    message: string;
+    offset: number;
 }
 
 class ParseContext {
@@ -510,7 +510,7 @@ class ParseContext {
     }
 
     error(msg: string, offset: number = this.offset) {
-        this.debug(`ERROR! ${msg}`)
+        this.debug(`ERROR! ${msg}`);
         this.errors.push({
             message: msg,
             offset: offset,
@@ -683,7 +683,7 @@ class ParseContext {
         const openerOffset = this.offset;
         const opener = this.consume(TokenKind.Reserved, t => "([{".includes(t.string));
         if (!opener) {
-            this.debug("no list")
+            this.debug("no list");
             return [undefined, 0];
         }
         switch (opener.string) {

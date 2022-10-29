@@ -1,5 +1,6 @@
 node_modules
 dist
+.DS_Store
 
 # ignore intermediate JS files (bun in particular likes to do this)
 src/**/*.js
