@@ -235,7 +235,41 @@ export enum NodeFlags {
   Symbol          = 1 << 17,
     
   MaskLabelKind = 0xF << 14,
+
+  All = ~0,
 }
+
+/**
+ * The names of node flags, excluding the special Mask flags.
+ * Use in conjunction with the Mask flags for nice debug output.
+ */
+export const nodeFlagNames = [
+  // MaskSetDelimiters
+  "HasParenLeft",
+  "HasParenRight",
+  "HasBracketLeft",
+  "HasBracketRight",
+  "HasBraceLeft",
+  "HasBraceRight",
+  
+  // MaskSeparators
+  "IsBeforeSemicolon",
+  "IsAfterSemicolon",
+  "IsBeforeComma",
+  "IsAfterComma",
+
+  // MaskStringDelimiters
+  "StringSingleQuote",
+  "StringDoubleQuote",
+  "StringTick",
+  "StringTriplet",
+
+  // MaskLabelKind
+  "Numeric",
+  "Identifier",
+  "StringLiteral",
+  "Symbol",
+] as const;
 
 export class Token {
   kind: TokenKind;
@@ -943,32 +977,8 @@ export function debugDumpFromNode(
 }
 
 function stringListFromNodeFlags(flags: NodeFlags): string[] {
-  const validFlags = [
-    "HasParenLeft",
-    "HasParenRight",
-    "HasBracketLeft",
-    "HasBracketRight",
-    "HasBraceLeft",
-    "HasBraceRight",
-    
-    "IsBeforeSemicolon",
-    "IsAfterSemicolon",
-    "IsBeforeComma",
-    "IsAfterComma",
-
-    "StringSingleQuote",
-    "StringDoubleQuote",
-    "StringTick",
-    "StringTriplet",
-        
-    "Numeric",
-    "Identifier",
-    "StringLiteral",
-    "Symbol",
-  ] as const;
-
   const names: string[] = [];
-  for (const flagName of validFlags) {
+  for (const flagName of nodeFlagNames) {
     if (flags & NodeFlags[flagName]) {
       names.push(flagName);
     }

@@ -1,4 +1,4 @@
-import { GenerateFlags, debugDumpFromNode, getToken, parse, Token, TokenKind, Node, tokenize } from "../src/metadesk";
+import { GenerateFlags, debugDumpFromNode, getToken, parse, Token, TokenKind, Node, tokenize, NodeFlags, nodeFlagNames } from "../src/metadesk";
 import { run, test, assertEqual, assertLength, TestContext } from "./framework";
 
 let str = `
@@ -92,6 +92,34 @@ function assertChildren(t: TestContext, node: Node, strs: string[]): boolean {
   return good;
 }
 
+function assertNodeFlags(t: TestContext, n: Node, mask: NodeFlags, flags: NodeFlags): boolean {
+  const flagsToCheck: NodeFlags[] = [];
+  for (const flagName of nodeFlagNames) {
+    if (mask & NodeFlags[flagName]) {
+      flagsToCheck.push(NodeFlags[flagName]);
+    }
+  }
+
+  let good = true;
+  for (const flag of flagsToCheck) {
+    if (flag & flags) {
+      // check if node has flag
+      if (!(n.flags & flag)) {
+        t.fail(`Expected node to have flag ${NodeFlags[flag]}`);
+        good = false;
+      }
+    } else {
+      // check if node does _not_ have flag
+      if (n.flags & flag) {
+        t.fail(`Expected node not to have flag ${NodeFlags[flag]}`);
+        good = false;
+      }
+    }
+  }
+
+  return good;
+}
+
 test("Lexer", t => {
 	const tokens = tokenize("abc def 123 456 123_456 abc123 123abc +-*");
 
@@ -138,14 +166,14 @@ test("Simple Unnamed Sets", t => {
 });
 
 test("Nested Sets", t => {
-  t.test("simple", t => {
+  t.test("Simple", t => {
     const node = parseSingleNode("{a b:{1 2 3} c}");
     if (assertChildren(t, node, ["a", "b", "c"])) {
       const b =  node.children[1];
       assertChildren(t, b, ["1", "2", "3"]);
     }
   });
-  t.test("code-like", t => {
+  t.test("Code-like", t => {
     const node = parseSingleNode("foo: { (size: u64) -> *void }");
     assertEqual(t, node.string, "foo");
     if (assertChildren(t, node, ["", "->", "*", "void"])) {
@@ -153,6 +181,91 @@ test("Nested Sets", t => {
       if (assertChildren(t, params, ["size"])) {
         assertChildren(t, params.children[0], ["u64"]);
       }
+    }
+  });
+});
+
+test("Non-Sets", t => {
+  {
+    const node = parseSingleNode("foo");
+    assertEqual(t, node.string, "foo");
+    assertChildren(t, node, []);
+  }
+  {
+    const node = parseSingleNode("123");
+    assertEqual(t, node.string, "123");
+    assertChildren(t, node, []);
+  }
+  {
+    const node = parseSingleNode("+");
+    assertEqual(t, node.string, "+");
+    assertChildren(t, node, []);
+  }
+});
+
+test("Set Border Flags", t => {
+  t.test("()", t => {
+    const node = parseSingleNode("(0, 100)");
+    assertNodeFlags(t, node, NodeFlags.MaskSetDelimiters, NodeFlags.HasParenLeft|NodeFlags.HasParenRight);
+  });
+  t.test("(]", t => {
+    const node = parseSingleNode("(0, 100]");
+    assertNodeFlags(t, node, NodeFlags.MaskSetDelimiters, NodeFlags.HasParenLeft|NodeFlags.HasBracketRight);
+  });
+  t.test("[)", t => {
+    const node = parseSingleNode("[0, 100)");
+    assertNodeFlags(t, node, NodeFlags.MaskSetDelimiters, NodeFlags.HasBracketLeft|NodeFlags.HasParenRight);
+  });
+  t.test("[]", t => {
+    const node = parseSingleNode("[0, 100]");
+    assertNodeFlags(t, node, NodeFlags.MaskSetDelimiters, NodeFlags.HasBracketLeft|NodeFlags.HasBracketRight);
+  });
+  t.test("{}", t => {
+    const node = parseSingleNode("{0, 100}");
+    assertNodeFlags(t, node, NodeFlags.MaskSetDelimiters, NodeFlags.HasBraceLeft|NodeFlags.HasBraceRight);
+  });
+});
+
+test("Node Separator Flags", t => {
+  const node = parseSingleNode("(a b, c; d)");
+  if (assertChildren(t, node, ["a", "b", "c", "d"])) {
+    assertNodeFlags(t, node.children[0], NodeFlags.MaskSeparators, NodeFlags.None);
+    assertNodeFlags(t, node.children[1], NodeFlags.MaskSeparators, NodeFlags.IsBeforeComma);
+    assertNodeFlags(t, node.children[2], NodeFlags.MaskSeparators, NodeFlags.IsAfterComma|NodeFlags.IsBeforeSemicolon);
+    assertNodeFlags(t, node.children[3], NodeFlags.MaskSeparators, NodeFlags.IsAfterSemicolon);
+  }
+});
+
+test("Node Text Flags", t => {
+  t.test("123", t => {
+    const node = parseSingleNode("123");
+    assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Numeric);
+  });
+  t.test("123_456_789", t => {
+    const node = parseSingleNode("123_456_789");
+    assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Numeric);
+  });
+
+  t.test("abc", t => {
+    const node = parseSingleNode("abc");
+    assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Identifier);
+  });
+
+  t.test("Strings", t => {
+    const cases = [
+      ["\"foo\"", NodeFlags.StringDoubleQuote],
+      ["'foo'", NodeFlags.StringDoubleQuote],
+      ["`foo`", NodeFlags.StringTick],
+      ["\"\"\"foo\"\"\"", NodeFlags.StringDoubleQuote|NodeFlags.StringTriplet],
+      ["'''foo'''", NodeFlags.StringSingleQuote|NodeFlags.StringTriplet],
+      ["```foo```", NodeFlags.StringTick|NodeFlags.StringTriplet],
+    ] as const;
+    for (const [str, flags] of cases) {
+      t.test(str, t => {
+        const node = parseSingleNode(str);
+        assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.StringLiteral);
+        assertNodeFlags(t, node, NodeFlags.MaskStringDelimiters, flags);
+      });
     }
   });
 });
