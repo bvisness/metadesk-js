@@ -86,7 +86,7 @@
  * 
  */
 
-const DEBUG = false;
+const DEBUG = true;
 
 export enum TokenKind {
   Invalid = 0,

@@ -9,10 +9,17 @@ interface TestCase {
   children: TestCase[];
 }
 
-interface Log {
-  err: Error;
-  isError: boolean;
+interface NormalLog {
+  isError: false;
+  stuff: any[];
 }
+
+interface ErrorLog {
+  isError: true;
+  err: Error;
+}
+
+type Log = NormalLog | ErrorLog;
 
 export class TestContext {
   testCase: TestCase;
@@ -41,10 +48,10 @@ export class TestContext {
     });
   }
 
-  log(message: string) {
+  log(...args: any[]) {
     this.testCase.logs.push({
-      err: new Error(message),
       isError: false,
+      stuff: args,
     });
   }
 }
@@ -63,11 +70,21 @@ export function test(name: string, func: TestFunc) {
   });
 }
 
-function runTests(tests: TestCase[]): boolean {
+function runTests(tests: TestCase[], name?: string): boolean {
   let success = true;
   for (const test of tests) {
+    const t = new TestContext(test);
+
+    const oldConsole = console;
+    console = {
+      ...oldConsole,
+      log(...args) {
+        t.log(...args);
+      },
+    };
+
     try {
-      test.func(new TestContext(test));
+      test.func(t);
     } catch (e) {
       test.logs.push({
         err: e instanceof Error ? e : new Error(JSON.stringify(e)),
@@ -75,8 +92,10 @@ function runTests(tests: TestCase[]): boolean {
       });
       test.success = false;
     }
+
+    console = oldConsole;
   
-    const subSuccess = runTests(test.children);
+    const subSuccess = runTests(test.children, name);
     if (!subSuccess) {
       test.success = false;
     }
@@ -88,8 +107,8 @@ function runTests(tests: TestCase[]): boolean {
   return success;
 }
 
-export function run() {
-  const success = runTests(tests);
+export function run(name?: string) {
+  const success = runTests(tests, name);
   
   function printTest(test: TestCase, indent: number) {
     const tab = "  ".repeat(indent);
@@ -99,7 +118,8 @@ export function run() {
       if (log.isError) {
         console.error(log.err);
       } else {
-        console.log(log.err.message);
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        console.log(tab + "    ", ...log.stuff);
       }
     }
 

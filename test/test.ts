@@ -1,5 +1,5 @@
 import { GenerateFlags, debugDumpFromNode, getToken, parse, Token, TokenKind, Node, tokenize, NodeFlags, nodeFlagNames } from "../src/metadesk";
-import { run, test, assertEqual, assertLength, TestContext } from "./framework";
+import { run, test, assertEqual, assertLength, TestContext, assertTrue } from "./framework";
 
 let str = `
 @include("<frc/Joystick.h>")
@@ -294,4 +294,70 @@ test("Node Text Flags", t => {
   });
 });
 
-run();
+test("Unscoped Subtleties", t => {
+  t.test("nested unscoped sets with following children", t => {
+    const res = parse("a:\nb:\nc\nd");
+    if (assertChildren(t, res.node, ["a", "d"])) {
+      const a = res.node.children[0];
+      if (assertChildren(t, a, ["b"])) {
+        const b = a.children[0];
+        assertChildren(t, b, ["c"]);
+      }
+    }
+  });
+  t.test("finished unscoped set", t => {
+    const res = parse("a:\nb:\nc");
+    if (assertChildren(t, res.node, ["a"])) {
+      const a = res.node.children[0];
+      if (assertChildren(t, a, ["b"])) {
+        const b = a.children[0];
+        assertChildren(t, b, ["c"]);
+      }
+    }
+  });
+  t.test("unfinished unscoped set", t => {
+    t.test("two newlines", t => {
+      const res = parse("a:\nb:\n\n");
+      assertTrue(t, res.errors.length > 0);
+    });
+    t.test("one newline", t => {
+      const res = parse("a:\nb:\n");
+      assertTrue(t, res.errors.length > 0);
+    });
+    t.test("no newline", t => {
+      const res = parse("a:\nb:");
+      assertTrue(t, res.errors.length > 0);
+    });
+  });
+  t.test("labeled scoped set in unscoped set", t => {
+    t.test("no newline before siblings", t => {
+      const res = parse("a: b: {\nx\n} c");
+      if (assertChildren(t, res.node, ["a", "c"])) {
+        const a = res.node.children[0];
+        if (assertChildren(t, a, ["b"])) {
+          const b = a.children[0];
+          assertChildren(t, b, ["x"]);
+        }
+      }
+    });
+    t.test("newline before siblings", t => {
+      const res = parse("a: b: {\nx\n}\nc");
+      if (assertChildren(t, res.node, ["a", "c"])) {
+        const a = res.node.children[0];
+        if (assertChildren(t, a, ["b"])) {
+          const b = a.children[0];
+          assertChildren(t, b, ["x"]);
+        }
+      }
+    });
+  });
+  t.test("scoped set is not unscoped", t => { // I actually have no idea what this description means, it was in the original tests
+    const res = parse("a: {\nx\ny\n} c");
+    if (assertChildren(t, res.node, ["a", "c"])) {
+      const a = res.node.children[0];
+      assertChildren(t, a, ["x", "y"]);
+    }
+  });
+});
+
+run("nested unscoped sets with following children");
