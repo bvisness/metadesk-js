@@ -183,6 +183,26 @@ test("Nested Sets", t => {
       }
     }
   });
+  t.test("Nested Implicit Sets", t => {
+    const res = parse("a: (b: c: d), e: f: g");
+    if (assertChildren(t, res.node, ["a", "e"])) {
+      const a = res.node.children[0];
+      const e = res.node.children[1];
+
+      if (assertChildren(t, a, ["b"])) {
+        const b = a.children[0];
+        if (assertChildren(t, b, ["c"])) {
+          const c = b.children[0];
+          assertChildren(t, c, ["d"]);
+        }
+      }
+
+      if (assertChildren(t, e, ["f"])) {
+        const f = e.children[0];
+        assertChildren(t, f, ["g"]);
+      }
+    }
+  });
 });
 
 test("Non-Sets", t => {

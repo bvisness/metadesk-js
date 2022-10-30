@@ -853,7 +853,6 @@ class ParseContext {
       commentToken = this.consumeWhitespaceLine();
 
       // Separators and newlines end the current implicit list.
-      // TODO: What about nested implicit lists, like foo: bar: baz;? A single separator can end multiple.
       const nextIsSeparator = this.check(TokenKind.Reserved, t => ",;".includes(t.string));
       const nextIsNewline = this.check(TokenKind.Newline);
       if (nextIsSeparator || nextIsNewline) {
