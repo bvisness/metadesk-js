@@ -273,15 +273,16 @@ export const nodeFlagNames = [
 
 export class Token {
   kind: TokenKind;
-  // TODO: flags?
   string: string;
   rawString: string;
+  flags: NodeFlags;
   remaining: string;
 
-  constructor(kind: TokenKind, string: string, rawString: string, remaining: string) {
+  constructor(kind: TokenKind, string: string, rawString: string, flags: NodeFlags, remaining: string) {
     this.kind = kind;
     this.string = string;
     this.rawString = rawString;
+    this.flags = flags;
     this.remaining = remaining;
   }
 
@@ -460,7 +461,7 @@ export function getToken(string: string): Token | undefined {
     } break;
   }
 
-  return new Token(kind, string.slice(skip, len-chop), string.slice(0, len), string.slice(len));
+  return new Token(kind, string.slice(skip, len-chop), string.slice(0, len), flags, string.slice(len));
 }
 
 export function tokenize(src: string): Token[] {
@@ -642,6 +643,7 @@ class ParseContext {
       const label = this.consume(Label);
       if (label) {
         node.string = label.string;
+        node.flags |= label.flags;
         this.debug(`node is named: ${node.string}`);
                 
         const colon = this.consume(TokenKind.Reserved, t => t.string === ":");

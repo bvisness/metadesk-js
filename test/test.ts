@@ -237,24 +237,28 @@ test("Node Separator Flags", t => {
 });
 
 test("Node Text Flags", t => {
-  t.test("123", t => {
-    const node = parseSingleNode("123");
-    assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Numeric);
-  });
-  t.test("123_456_789", t => {
-    const node = parseSingleNode("123_456_789");
-    assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Numeric);
+  t.test("Numeric", t => {
+    t.test("123", t => {
+      const node = parseSingleNode("123");
+      assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Numeric);
+    });
+    t.test("123_456_789", t => {
+      const node = parseSingleNode("123_456_789");
+      assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Numeric);
+    });
   });
 
-  t.test("abc", t => {
-    const node = parseSingleNode("abc");
-    assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Identifier);
+  t.test("Identifier", t => {
+    t.test("abc", t => {
+      const node = parseSingleNode("abc");
+      assertNodeFlags(t, node, NodeFlags.MaskLabelKind, NodeFlags.Identifier);
+    });
   });
 
   t.test("Strings", t => {
     const cases = [
       ["\"foo\"", NodeFlags.StringDoubleQuote],
-      ["'foo'", NodeFlags.StringDoubleQuote],
+      ["'foo'", NodeFlags.StringSingleQuote],
       ["`foo`", NodeFlags.StringTick],
       ["\"\"\"foo\"\"\"", NodeFlags.StringDoubleQuote|NodeFlags.StringTriplet],
       ["'''foo'''", NodeFlags.StringSingleQuote|NodeFlags.StringTriplet],
