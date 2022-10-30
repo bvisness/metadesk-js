@@ -88,7 +88,7 @@
 
 const DEBUG = false;
 
-enum TokenKind {
+export enum TokenKind {
   Invalid = 0,
 
   Identifier      = 1 << 0,
@@ -165,10 +165,10 @@ function sanitize(str: string): string {
 }
 
 export class ParseResult {
-  node: Node | undefined;
+  node: Node;
   #ctx: ParseContext;
 
-  constructor(node: Node | undefined, ctx: ParseContext) {
+  constructor(node: Node, ctx: ParseContext) {
     this.node = node;
     this.#ctx = ctx;
   }
@@ -429,6 +429,19 @@ export function getToken(string: string): Token | undefined {
   return new Token(kind, string.slice(skip, len-chop), string.slice(0, len), string.slice(len));
 }
 
+export function tokenize(src: string): Token[] {
+  const tokens: Token[] = [];
+	while (true) {
+		const token = getToken(src);
+		if (!token) {
+			break;
+		}
+		tokens.push(token);
+		src = token.remaining;
+	}
+  return tokens;
+}
+
 function getLastComment(tokens: Token[]): Token | undefined {
   let comment: Token | undefined = undefined;
   for (const token of tokens) {
@@ -447,16 +460,25 @@ function charIsReservedSymbol(c: string): boolean {
   return "{}()\\[]#,;:@".includes(c);
 }
 
-export interface Error {
+export class ParseError {
   message: string;
   offset: number;
+
+  constructor(message: string, offset: number) {
+    this.message = message;
+    this.offset = offset;
+  }
+
+  toString(): string {
+    return `(offset ${this.offset}) ${this.message}`;
+  }
 }
 
 class ParseContext {
   source: string;
   remaining: string;
   last: Token | undefined;
-  errors: Error[];
+  errors: ParseError[];
 
   constructor(source: string) {
     this.source = source;
@@ -509,10 +531,7 @@ class ParseContext {
 
   error(msg: string, offset: number = this.offset) {
     this.debug(`ERROR! ${msg}`);
-    this.errors.push({
-      message: msg,
-      offset: offset,
-    });
+    this.errors.push(new ParseError(msg, offset));
   }
 
   debug(msg: string) {
@@ -796,10 +815,19 @@ class ParseContext {
       result.push(node);
 
       commentToken = this.consumeWhitespaceLine();
+
+      // Separators and newlines end the current implicit list.
+      // TODO: What about nested implicit lists, like foo: bar: baz;? A single separator can end multiple.
       const nextIsSeparator = this.check(TokenKind.Reserved, t => ",;".includes(t.string));
       const nextIsNewline = this.check(TokenKind.Newline);
       if (nextIsSeparator || nextIsNewline) {
         this.consume();
+        break;
+      }
+
+      // Alternatively, we may encounter an explicit set closer, which must belong to a parent
+      // list. Just bail.
+      if (this.check(TokenKind.Reserved, t => ")]}".includes(t.string))) {
         break;
       }
     }

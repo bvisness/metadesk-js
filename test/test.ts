@@ -1,5 +1,5 @@
-import { GenerateFlags, debugDumpFromNode, getToken, parse } from "../src/metadesk";
-import { run, test } from "./framework";
+import { GenerateFlags, debugDumpFromNode, getToken, parse, Token, TokenKind, Node, tokenize } from "../src/metadesk";
+import { run, test, assertEqual, assertLength, TestContext } from "./framework";
 
 let str = `
 @include("<frc/Joystick.h>")
@@ -64,19 +64,97 @@ io: {
 // blemmo = 2-3
 // `
 
-let tokenStr = str;
-let token;
-while (token = getToken(tokenStr)) {
-    console.log(token.toString());
-    tokenStr = token.remaining;
+function parseSingleNode(src: string): Node {
+	const res = parse(src);
+	if (res.errors.length > 0) {
+		throw new Error(
+			`There were ${res.errors.length} errors during parsing:\n`
+			+ res.errors.map(err => "  " + err.toString()).join("\n") + "\n"
+      // + "Tokens:\n"
+      // + tokenize(src).map(t => "  " + t.toString()).join("\n"),
+		);
+	}
+	return res.node.children[0];
 }
 
-console.log("------------------------");
+function assertChildren(t: TestContext, node: Node, strs: string[]): boolean {
+  if (!assertLength(t, node.children, strs.length)) {
+    return false;
+  }
 
-const parsed = parse(str);
-console.log(debugDumpFromNode(parsed.node!, 0, "  ", GenerateFlags.All))
-for (const err of parsed.fancyErrors()) {
-	console.log(err);
+  let good = true;
+  for (const [i, child] of node.children.entries()) {
+    if (!assertEqual(t, child.string, strs[i])) {
+      good = false;
+    }
+  }
+
+  return good;
 }
+
+test("Lexer", t => {
+	const tokens = tokenize("abc def 123 456 123_456 abc123 123abc +-*");
+
+	function tokenMatch(tok: Token, str: string, kind: TokenKind) {
+		const good = tok.kind == kind && tok.string == str;
+		if (!good) {
+			t.fail(`Expected token with kind ${TokenKind[kind]} and string "${str}", got ${tok.toString()}`);
+		}
+	}
+
+	tokenMatch(tokens[0], "abc", TokenKind.Identifier);
+	tokenMatch(tokens[1], " ", TokenKind.Whitespace);
+	tokenMatch(tokens[2], "def", TokenKind.Identifier);
+	tokenMatch(tokens[3], " ", TokenKind.Whitespace);
+	tokenMatch(tokens[4], "123", TokenKind.Numeric);
+	tokenMatch(tokens[5], " ", TokenKind.Whitespace);
+	tokenMatch(tokens[6], "456", TokenKind.Numeric);
+	tokenMatch(tokens[7], " ", TokenKind.Whitespace);
+	tokenMatch(tokens[8], "123_456", TokenKind.Numeric);
+	tokenMatch(tokens[9], " ", TokenKind.Whitespace);
+	tokenMatch(tokens[10], "abc123", TokenKind.Identifier);
+	tokenMatch(tokens[11], " ", TokenKind.Whitespace);
+	tokenMatch(tokens[12], "123abc", TokenKind.Numeric);
+	tokenMatch(tokens[13], " ", TokenKind.Whitespace);
+	tokenMatch(tokens[14], "+-*", TokenKind.Symbol);
+});
+
+test("Empty Sets", t => {
+	function assertEmpty(n: Node) {
+		assertEqual(t, n.string, "");
+		assertLength(t, n.children, 0);
+	}
+
+	assertEmpty(parseSingleNode("{}"));
+	assertEmpty(parseSingleNode("()"));
+	assertEmpty(parseSingleNode("[]"));
+	assertEmpty(parseSingleNode("[)"));
+	assertEmpty(parseSingleNode("(]"));
+});
+
+test("Simple Unnamed Sets", t => {
+	const node = parseSingleNode("{a, b, c}");
+  assertChildren(t, node, ["a", "b", "c"]);
+});
+
+test("Nested Sets", t => {
+  t.test("simple", t => {
+    const node = parseSingleNode("{a b:{1 2 3} c}");
+    if (assertChildren(t, node, ["a", "b", "c"])) {
+      const b =  node.children[1];
+      assertChildren(t, b, ["1", "2", "3"]);
+    }
+  });
+  t.test("code-like", t => {
+    const node = parseSingleNode("foo: { (size: u64) -> *void }");
+    assertEqual(t, node.string, "foo");
+    if (assertChildren(t, node, ["", "->", "*", "void"])) {
+      const params = node.children[0];
+      if (assertChildren(t, params, ["size"])) {
+        assertChildren(t, params.children[0], ["u64"]);
+      }
+    }
+  });
+});
 
 run();

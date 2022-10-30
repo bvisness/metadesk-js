@@ -16,6 +16,10 @@ module.exports = {
     "quotes": ["error", "double"],
     "no-irregular-whitespace": "off",
 
+    // wtf, guys
+    "no-constant-condition": "off",
+    "@typescript-eslint/no-unnecessary-condition": ["warn", { "allowConstantLoopConditions": true }],
+
     "@typescript-eslint/prefer-literal-enum-member": "off",
     "@typescript-eslint/no-unused-vars": ["warn", {
       "varsIgnorePattern": "^_",
@@ -26,5 +30,7 @@ module.exports = {
     "@typescript-eslint/semi": "error",
 
     "@typescript-eslint/member-delimiter-style": "error",
+
+    "@typescript-eslint/no-explicit-any": "off", // who do these morons think they are
   },
 };
